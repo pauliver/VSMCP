@@ -335,4 +335,131 @@ public sealed class VsmcpTools
         var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         return await proxy.BuildOutputAsync(buildId, pane, ct).ConfigureAwait(false);
     }
+
+    // -------- Debug control --------
+
+    [McpServerTool(Name = "debug.launch")]
+    [Description("Start a debug session for a project (or the solution's startup project). Returns immediately; poll debug.state to track the transition.")]
+    public async Task<DebugActionResult> DebugLaunch(
+        [Description("Project id (UniqueName/Name/FullPath). Omit for the configured startup project.")] string? projectId = null,
+        [Description("Override command-line arguments.")] string? args = null,
+        [Description("Environment variables to layer on top of the project's configured values.")] Dictionary<string, string>? env = null,
+        [Description("Override the working directory.")] string? cwd = null,
+        [Description("Start without the debugger (equivalent to Ctrl+F5).")] bool noDebug = false,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DebugLaunchAsync(
+            new DebugLaunchOptions { ProjectId = projectId, Args = args, Env = env, Cwd = cwd, NoDebug = noDebug },
+            ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "debug.attach")]
+    [Description("Attach the VS debugger to an already-running process by pid or name.")]
+    public async Task<DebugActionResult> DebugAttach(
+        [Description("Process id. Either pid or processName must be provided.")] int? pid = null,
+        [Description("Process name without extension (case-insensitive). First match wins.")] string? processName = null,
+        [Description("Optional debug engine names (e.g. 'Managed (.NET Core)', 'Native'). Omit to let VS pick.")] List<string>? engines = null,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DebugAttachAsync(
+            new DebugAttachOptions { Pid = pid, ProcessName = processName, Engines = engines },
+            ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "debug.stop")]
+    [Description("Terminate the debuggee and return to design mode.")]
+    public async Task<DebugActionResult> DebugStop(CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DebugStopAsync(ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "debug.detach")]
+    [Description("Detach from all debuggees without terminating them.")]
+    public async Task<DebugActionResult> DebugDetach(CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DebugDetachAsync(ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "debug.restart")]
+    [Description("Restart the current debug session.")]
+    public async Task<DebugActionResult> DebugRestart(CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DebugRestartAsync(ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "debug.break_all")]
+    [Description("Break into all threads and enter break mode.")]
+    public async Task<DebugActionResult> DebugBreakAll(CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DebugBreakAllAsync(ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "debug.continue")]
+    [Description("Resume execution from break mode.")]
+    public async Task<DebugActionResult> DebugContinue(CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DebugContinueAsync(ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "debug.step_into")]
+    [Description("Step into the next call on the current thread.")]
+    public async Task<DebugActionResult> DebugStepInto(CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DebugStepIntoAsync(ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "debug.step_over")]
+    [Description("Step over the next statement, treating calls as atomic.")]
+    public async Task<DebugActionResult> DebugStepOver(CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DebugStepOverAsync(ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "debug.step_out")]
+    [Description("Run until the current function returns.")]
+    public async Task<DebugActionResult> DebugStepOut(CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DebugStepOutAsync(ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "debug.run_to_cursor")]
+    [Description("Resume execution and break when the specified line is about to execute.")]
+    public async Task<DebugActionResult> DebugRunToCursor(
+        [Description("Absolute path of the file containing the target line.")] string file,
+        [Description("1-based line number to run to.")] int line,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DebugRunToCursorAsync(file, line, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "debug.set_next_statement")]
+    [Description("Move the instruction pointer to a different line. Requires Break mode and explicit allowSideEffects=true; can corrupt program state.")]
+    public async Task<DebugActionResult> DebugSetNextStatement(
+        [Description("Absolute path of the file.")] string file,
+        [Description("1-based line to jump to. Must be in the current function.")] int line,
+        [Description("Must be true. Acknowledges that constructors/resources may be skipped.")] bool allowSideEffects = false,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DebugSetNextStatementAsync(file, line, allowSideEffects, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "debug.state")]
+    [Description("Snapshot of the debugger: mode, stopped reason, current process/thread/frame, last exception if any.")]
+    public async Task<DebugInfo> DebugState(CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DebugStateAsync(ct).ConfigureAwait(false);
+    }
 }
