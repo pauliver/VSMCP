@@ -17,11 +17,15 @@ public sealed class VsmcpTools
 {
     private readonly VsConnection _connection;
     private readonly ProfilerHost _profiler;
+    private readonly CountersSubscriptionHost _counters;
+    private readonly TraceHost _trace;
 
-    public VsmcpTools(VsConnection connection, ProfilerHost profiler)
+    public VsmcpTools(VsConnection connection, ProfilerHost profiler, CountersSubscriptionHost counters, TraceHost trace)
     {
         _connection = connection;
         _profiler = profiler;
+        _counters = counters;
+        _trace = trace;
     }
 
     [McpServerTool(Name = "ping")]
@@ -841,5 +845,66 @@ public sealed class VsmcpTools
     {
         var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         return await proxy.CodeQuickInfoAsync(position, ct).ConfigureAwait(false);
+    }
+
+    // -------- Streaming counters (M8) --------
+
+    [McpServerTool(Name = "counters.subscribe")]
+    [Description("Start a background poller that samples process-level counters (CPU%, working set, handle/thread counts, …) at a fixed cadence. Samples are buffered server-side in a ring (up to 256); drain them with counters.read. Stops on process exit or counters.unsubscribe. Unlike counters.get, this does not block the caller for a sample window.")]
+    public Task<CountersSubscriptionHandle> CountersSubscribe(
+        [Description("Target process id.")] int pid,
+        [Description("Sampling interval in milliseconds (100..60000). Default 500ms.")] int sampleMs = 500,
+        CancellationToken ct = default)
+    {
+        return Task.FromResult(_counters.Subscribe(pid, sampleMs));
+    }
+
+    [McpServerTool(Name = "counters.read")]
+    [Description("Drain buffered samples from a subscription. Returns up to `maxSamples` snapshots in FIFO order and clears them from the buffer. Reports how many samples were dropped because the ring wrapped and whether the subscription has ended.")]
+    public Task<CountersReadResult> CountersRead(
+        [Description("Subscription id from counters.subscribe.")] string subscriptionId,
+        [Description("Max samples to return (1..256). Default 256.")] int maxSamples = 256,
+        CancellationToken ct = default)
+    {
+        return Task.FromResult(_counters.Read(subscriptionId, maxSamples));
+    }
+
+    [McpServerTool(Name = "counters.unsubscribe")]
+    [Description("Stop a counters subscription and free its buffer. Returns the total sample count, dropped count, and duration.")]
+    public Task<CountersUnsubscribeResult> CountersUnsubscribe(
+        [Description("Subscription id from counters.subscribe.")] string subscriptionId,
+        CancellationToken ct = default)
+    {
+        return Task.FromResult(_counters.Unsubscribe(subscriptionId));
+    }
+
+    // -------- ETW tracing (M8) --------
+
+    [McpServerTool(Name = "trace.start")]
+    [Description("Start a system-wide ETW trace session. Requires Administrator — user-mode ETW needs SeSystemProfilePrivilege. Providers may be named (\"Microsoft-Windows-DotNETRuntime\") or GUID-formatted. Kernel keywords use KernelTraceEventParser.Keywords names (Process, ImageLoad, Thread, DiskIO, NetworkTCPIP, ContextSwitch, …). Events are streamed to the output .etl until trace.stop.")]
+    public Task<TraceStartResult> TraceStart(
+        [Description("Start options. Providers + optional kernel keywords + optional output path.")] TraceStartOptions options,
+        CancellationToken ct = default)
+    {
+        return Task.FromResult(_trace.Start(options));
+    }
+
+    [McpServerTool(Name = "trace.stop")]
+    [Description("Stop an ETW trace session by id. Flushes the .etl and returns the final file size and duration.")]
+    public Task<TraceStopResult> TraceStop(
+        [Description("Session id from trace.start.")] string sessionId,
+        CancellationToken ct = default)
+    {
+        return Task.FromResult(_trace.Stop(sessionId));
+    }
+
+    [McpServerTool(Name = "trace.report")]
+    [Description("Summarize a .etl file: total event count, wall-clock duration, per-provider event counts, and the top N (provider, event) pairs by frequency. Uses Microsoft.Diagnostics.Tracing.TraceEvent; does not require admin.")]
+    public Task<TraceReport> TraceReport(
+        [Description("Absolute path to a .etl file.")] string path,
+        [Description("Max (provider, event) pairs to return (1..1000, default 20).")] int top = 20,
+        CancellationToken ct = default)
+    {
+        return Task.FromResult(_trace.Report(path, top));
     }
 }

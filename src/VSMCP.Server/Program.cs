@@ -21,6 +21,8 @@ if (config.FileLoggingEnabled)
 builder.Services.AddSingleton(config);
 builder.Services.AddSingleton<VsConnection>();
 builder.Services.AddSingleton<ProfilerHost>();
+builder.Services.AddSingleton<CountersSubscriptionHost>();
+builder.Services.AddSingleton<TraceHost>();
 
 builder.Services
     .AddMcpServer()
