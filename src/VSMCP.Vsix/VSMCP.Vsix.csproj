@@ -68,6 +68,7 @@
     <Compile Include="RpcTarget.Build.cs" />
     <Compile Include="RpcTarget.Debug.cs" />
     <Compile Include="RpcTarget.Breakpoints.cs" />
+    <Compile Include="RpcTarget.Inspection.cs" />
     <Compile Include="BuildCoordinator.cs" />
     <Compile Include="VsHelpers.cs" />
   </ItemGroup>

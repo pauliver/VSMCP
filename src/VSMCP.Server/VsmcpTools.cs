@@ -532,4 +532,98 @@ public sealed class VsmcpTools
         var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         return await proxy.BreakpointDisableAsync(bpId, ct).ConfigureAwait(false);
     }
+
+    [McpServerTool(Name = "threads.list")]
+    [Description("List all threads in the debuggee (paused or running). Requires an active debug session.")]
+    public async Task<ThreadListResult> ThreadsList(CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.ThreadsListAsync(ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "threads.freeze")]
+    [Description("Freeze a thread so it won't run when the debugger continues.")]
+    public async Task<ThreadInfo> ThreadsFreeze(
+        [Description("Thread id (as reported by threads.list).")] int threadId,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.ThreadsFreezeAsync(threadId, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "threads.thaw")]
+    [Description("Unfreeze a previously frozen thread.")]
+    public async Task<ThreadInfo> ThreadsThaw(
+        [Description("Thread id.")] int threadId,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.ThreadsThawAsync(threadId, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "threads.switch")]
+    [Description("Make the given thread the debugger's current thread. Subsequent stack/locals/eval calls default to this thread.")]
+    public async Task<ThreadInfo> ThreadsSwitch(
+        [Description("Thread id.")] int threadId,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.ThreadsSwitchAsync(threadId, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "stack.get")]
+    [Description("Get the call stack for a thread (defaults to the current thread). Pass depth to cap the number of returned frames.")]
+    public async Task<StackGetResult> StackGet(
+        [Description("Optional thread id. Omit to use the current thread.")] int? threadId = null,
+        [Description("Optional max number of frames (from top of stack).")] int? depth = null,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.StackGetAsync(threadId, depth, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "frame.switch")]
+    [Description("Select a stack frame on a thread. Defaults to the current thread.")]
+    public async Task<StackFrameInfo> FrameSwitch(
+        [Description("Frame index (0 = top of stack).")] int frameIndex,
+        [Description("Optional thread id. Omit for the current thread.")] int? threadId = null,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.FrameSwitchAsync(threadId, frameIndex, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "frame.locals")]
+    [Description("Get local variables for a frame. expandDepth controls lazy expansion of composite values (0 = no children).")]
+    public async Task<VariableListResult> FrameLocals(
+        [Description("Optional thread id (default: current).")] int? threadId = null,
+        [Description("Optional frame index (default: current frame).")] int? frameIndex = null,
+        [Description("How many levels of children to expand. 0 disables expansion.")] int expandDepth = 0,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.FrameLocalsAsync(threadId, frameIndex, expandDepth, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "frame.arguments")]
+    [Description("Get the arguments of the currently-selected frame (or specified frame).")]
+    public async Task<VariableListResult> FrameArguments(
+        [Description("Optional thread id (default: current).")] int? threadId = null,
+        [Description("Optional frame index (default: current frame).")] int? frameIndex = null,
+        [Description("How many levels of children to expand. 0 disables expansion.")] int expandDepth = 0,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.FrameArgumentsAsync(threadId, frameIndex, expandDepth, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "eval.expression")]
+    [Description("Evaluate an expression in the current (or specified) frame. Refuses side-effecting calls unless allowSideEffects=true.")]
+    public async Task<EvalResult> EvalExpression(
+        [Description("Evaluation options. Expression is required. See EvalOptions for the full schema.")] EvalOptions options,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.EvalExpressionAsync(options, ct).ConfigureAwait(false);
+    }
 }

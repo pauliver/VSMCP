@@ -71,4 +71,15 @@ public interface IVsmcpRpc
     Task BreakpointRemoveAsync(string bpId, CancellationToken cancellationToken = default);
     Task<BreakpointInfo> BreakpointEnableAsync(string bpId, CancellationToken cancellationToken = default);
     Task<BreakpointInfo> BreakpointDisableAsync(string bpId, CancellationToken cancellationToken = default);
+
+    // -------- Inspection: threads, stacks, frames, eval --------
+    Task<ThreadListResult> ThreadsListAsync(CancellationToken cancellationToken = default);
+    Task<ThreadInfo> ThreadsFreezeAsync(int threadId, CancellationToken cancellationToken = default);
+    Task<ThreadInfo> ThreadsThawAsync(int threadId, CancellationToken cancellationToken = default);
+    Task<ThreadInfo> ThreadsSwitchAsync(int threadId, CancellationToken cancellationToken = default);
+    Task<StackGetResult> StackGetAsync(int? threadId, int? depth, CancellationToken cancellationToken = default);
+    Task<StackFrameInfo> FrameSwitchAsync(int? threadId, int frameIndex, CancellationToken cancellationToken = default);
+    Task<VariableListResult> FrameLocalsAsync(int? threadId, int? frameIndex, int expandDepth, CancellationToken cancellationToken = default);
+    Task<VariableListResult> FrameArgumentsAsync(int? threadId, int? frameIndex, int expandDepth, CancellationToken cancellationToken = default);
+    Task<EvalResult> EvalExpressionAsync(EvalOptions options, CancellationToken cancellationToken = default);
 }
