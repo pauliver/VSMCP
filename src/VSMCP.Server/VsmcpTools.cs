@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Threading;
@@ -19,13 +20,15 @@ public sealed class VsmcpTools
     private readonly ProfilerHost _profiler;
     private readonly CountersSubscriptionHost _counters;
     private readonly TraceHost _trace;
+    private readonly VsmcpConfig _config;
 
-    public VsmcpTools(VsConnection connection, ProfilerHost profiler, CountersSubscriptionHost counters, TraceHost trace)
+    public VsmcpTools(VsConnection connection, ProfilerHost profiler, CountersSubscriptionHost counters, TraceHost trace, VsmcpConfig config)
     {
         _connection = connection;
         _profiler = profiler;
         _counters = counters;
         _trace = trace;
+        _config = config;
     }
 
     [McpServerTool(Name = "ping")]
@@ -727,6 +730,28 @@ public sealed class VsmcpTools
     {
         var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         return await proxy.DumpSummaryAsync(ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "dump.dbgeng")]
+    [Description("Run a DbgEng command (e.g. '!analyze -v', 'k', 'lm', '~*k') against a dump file by invoking cdb.exe with -z. Returns the captured output. Gated: requires allowDbgEng=true in %LOCALAPPDATA%\\VSMCP\\config.json. cdb.exe is auto-discovered under the Windows Kits install; override via cdbPath.")]
+    public async Task<DumpDbgEngResult> DumpDbgEng(
+        [Description("Absolute path to the dump file.")] string dumpPath,
+        [Description("DbgEng command to run (semicolon-separated is OK; do not append 'q' — the wrapper does that).")] string command,
+        [Description("Optional extra symbol search path (semicolon-separated); overrides _NT_SYMBOL_PATH for this call.")] string? symbolPath = null,
+        [Description("Timeout in milliseconds (5000..600000, default 120000).")] int? timeoutMs = null,
+        [Description("Override path to cdb.exe. Default: auto-discover under Windows Kits.")] string? cdbPath = null,
+        CancellationToken ct = default)
+    {
+        if (!_config.AllowDbgEng)
+            throw new InvalidOperationException("dump.dbgeng is disabled. Set \"allowDbgEng\": true in %LOCALAPPDATA%\\VSMCP\\config.json to enable.");
+        return await DbgEngInvoker.RunAsync(new DumpDbgEngOptions
+        {
+            DumpPath = dumpPath,
+            Command = command,
+            SymbolPath = symbolPath,
+            TimeoutMs = timeoutMs,
+            CdbPath = cdbPath,
+        }, ct).ConfigureAwait(false);
     }
 
     [McpServerTool(Name = "dump.save")]
