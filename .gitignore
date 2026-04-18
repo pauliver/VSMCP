@@ -15,12 +15,13 @@ out/
 *.VC.db
 *.VC.VC.opendb
 
-# VSIX
-*.vsix
-*.pdb
-*.dll
-*.exe
-!**/Properties/**/*.dll
+# VSIX / compiled output (restricted to bin/obj so we don't swallow VSMCP.Vsix/ project dir)
+**/bin/**/*.vsix
+**/bin/**/*.pdb
+**/bin/**/*.dll
+**/bin/**/*.exe
+**/obj/**/*.pdb
+**/obj/**/*.dll
 
 # Rider / ReSharper
 .idea/

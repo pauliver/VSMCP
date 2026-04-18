@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <RootNamespace>VSMCP.Server</RootNamespace>
+    <AssemblyName>vsmcp-server</AssemblyName>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>vsmcp-server</ToolCommandName>
+    <PackageId>VSMCP.Server</PackageId>
+    <Description>Model Context Protocol server that drives Visual Studio 2022. Pairs with the VSMCP VSIX extension.</Description>
+    <PackageTags>mcp;visual-studio;debugger;claude;ai</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="1.2.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\VSMCP.Shared\VSMCP.Shared.csproj" />
+  </ItemGroup>
+</Project>
