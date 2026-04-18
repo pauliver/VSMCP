@@ -18,12 +18,18 @@ internal sealed class ModuleTracker : IDebugEventCallback2, IDisposable
 {
     private static readonly Guid s_moduleLoadEvent = typeof(IDebugModuleLoadEvent2).GUID;
     private static readonly Guid s_programDestroyEvent = typeof(IDebugProgramDestroyEvent2).GUID;
+    private static readonly Guid s_programCreateEvent = typeof(IDebugProgramCreateEvent2).GUID;
 
     private readonly IVsDebugger? _debugger;
     private readonly ConcurrentDictionary<string, Entry> _byId = new(StringComparer.Ordinal);
     // Raw module -> id so we can remove on unload.
     private readonly ConcurrentDictionary<IDebugModule2, string> _byModule = new();
+    private IDebugProgram2? _currentProgram;
+    private IDebugThread2? _lastThread;
     private bool _advised;
+
+    public IDebugProgram2? CurrentProgram => _currentProgram;
+    public IDebugThread2? LastThread => _lastThread;
 
     public ModuleTracker(IVsDebugger? debugger)
     {
@@ -81,6 +87,10 @@ internal sealed class ModuleTracker : IDebugEventCallback2, IDisposable
     {
         try
         {
+            // Always track the latest program/thread we've seen so inspection RPCs have a target.
+            if (pProgram is not null) _currentProgram = pProgram;
+            if (pThread is not null) _lastThread = pThread;
+
             if (riidEvent == s_moduleLoadEvent && pEvent is IDebugModuleLoadEvent2 modLoad)
             {
                 string? dbgMsg = null;
@@ -92,9 +102,15 @@ internal sealed class ModuleTracker : IDebugEventCallback2, IDisposable
                     else Remove(module);
                 }
             }
+            else if (riidEvent == s_programCreateEvent && pProgram is not null)
+            {
+                _currentProgram = pProgram;
+            }
             else if (riidEvent == s_programDestroyEvent)
             {
                 ClearAll();
+                _currentProgram = null;
+                _lastThread = null;
             }
         }
         catch { /* never let a callback exception escape into the debugger */ }

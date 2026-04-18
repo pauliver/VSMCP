@@ -654,4 +654,49 @@ public sealed class VsmcpTools
         var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         return await proxy.SymbolsStatusAsync(moduleId, ct).ConfigureAwait(false);
     }
+
+    [McpServerTool(Name = "memory.read")]
+    [Description("Read raw bytes from the debuggee's address space. Requires an active debug session broken into a frame where the address is resolvable (native/C++ frames work best). Reads are capped at 64 KiB per call.")]
+    public async Task<MemoryReadResult> MemoryRead(
+        [Description("Address to read from. Decimal or 0x-prefixed hex (e.g. '0x7ff6abcd1234').")] string address,
+        [Description("Number of bytes to read (1..65536).")] int length,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.MemoryReadAsync(address, length, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "memory.write")]
+    [Description("Write raw bytes into the debuggee's address space. Destructive: requires allowSideEffects=true. Writes are capped at 64 KiB per call.")]
+    public async Task<MemoryWriteResult> MemoryWrite(
+        [Description("Address to write to. Decimal or 0x-prefixed hex.")] string address,
+        [Description("Payload as hex (whitespace, '-', ',', ':' are ignored; even nibble count required).")] string hex,
+        [Description("Must be true to actually perform the write. Defaults to false.")] bool allowSideEffects = false,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.MemoryWriteAsync(address, hex, allowSideEffects, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "registers.get")]
+    [Description("Return CPU registers for a thread/frame, grouped (e.g. CPU, CPU Segments, Floating Point, SSE). Defaults to the current thread and current frame.")]
+    public async Task<RegistersResult> RegistersGet(
+        [Description("Thread id. Omit to use the current thread.")] int? threadId = null,
+        [Description("Frame index (0 = innermost). Omit to use the current frame.")] int? frameIndex = null,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.RegistersGetAsync(threadId, frameIndex, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "disasm.get")]
+    [Description("Return disassembled instructions starting at an address. Includes opcode bytes, mnemonic, operands, nearest symbol, and source file/line when available. Capped at 4096 instructions per call.")]
+    public async Task<DisasmResult> DisasmGet(
+        [Description("Start address. Decimal or 0x-prefixed hex.")] string address,
+        [Description("Number of instructions to return (1..4096).")] int count,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DisasmGetAsync(address, count, ct).ConfigureAwait(false);
+    }
 }
