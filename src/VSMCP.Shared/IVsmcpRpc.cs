@@ -64,4 +64,11 @@ public interface IVsmcpRpc
     Task<DebugActionResult> DebugRunToCursorAsync(string file, int line, CancellationToken cancellationToken = default);
     Task<DebugActionResult> DebugSetNextStatementAsync(string file, int line, bool allowSideEffects, CancellationToken cancellationToken = default);
     Task<DebugInfo> DebugStateAsync(CancellationToken cancellationToken = default);
+
+    // -------- Breakpoints --------
+    Task<BreakpointInfo> BreakpointSetAsync(BreakpointSetOptions options, CancellationToken cancellationToken = default);
+    Task<BreakpointListResult> BreakpointListAsync(CancellationToken cancellationToken = default);
+    Task BreakpointRemoveAsync(string bpId, CancellationToken cancellationToken = default);
+    Task<BreakpointInfo> BreakpointEnableAsync(string bpId, CancellationToken cancellationToken = default);
+    Task<BreakpointInfo> BreakpointDisableAsync(string bpId, CancellationToken cancellationToken = default);
 }
