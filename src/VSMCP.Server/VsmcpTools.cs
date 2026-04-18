@@ -731,4 +731,26 @@ public sealed class VsmcpTools
         var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         return await proxy.DumpSaveAsync(new DumpSaveOptions { Pid = pid, Path = path, Full = full }, ct).ConfigureAwait(false);
     }
+
+    [McpServerTool(Name = "processes.list")]
+    [Description("Enumerate local processes visible to devenv.exe. Useful for picking a PID before debug.attach, dump.save, or counters.get. By default restricts to devenv's Windows session.")]
+    public async Task<ProcessListResult> ProcessesList(
+        [Description("Case-insensitive substring filter on process name. Null = no filter.")] string? nameContains = null,
+        [Description("When true (default), only processes in the same Windows session as Visual Studio are returned.")] bool currentSessionOnly = true,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.ProcessesListAsync(new ProcessListFilter { NameContains = nameContains, CurrentSessionOnly = currentSessionOnly }, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "counters.get")]
+    [Description("One-shot snapshot of process-level counters: CPU% (sampled across `sampleMs`), working set, private/virtual memory, thread/handle counts, and uptime. Uses System.Diagnostics.Process — no profiler attachment required. For streaming counters, see a future counters.subscribe.")]
+    public async Task<CountersSnapshot> CountersGet(
+        [Description("Target process id.")] int pid,
+        [Description("Sampling window in milliseconds for CPU% (clamped to 50..10000). Default 200ms.")] int sampleMs = 200,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.CountersGetAsync(pid, sampleMs, ct).ConfigureAwait(false);
+    }
 }

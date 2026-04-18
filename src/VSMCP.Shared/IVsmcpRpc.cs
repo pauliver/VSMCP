@@ -98,4 +98,8 @@ public interface IVsmcpRpc
     Task<DumpOpenResult> DumpOpenAsync(DumpOpenOptions options, CancellationToken cancellationToken = default);
     Task<DumpSummaryResult> DumpSummaryAsync(CancellationToken cancellationToken = default);
     Task<DumpSaveResult> DumpSaveAsync(DumpSaveOptions options, CancellationToken cancellationToken = default);
+
+    // -------- Diagnostics (counters + process enumeration) --------
+    Task<ProcessListResult> ProcessesListAsync(ProcessListFilter? filter, CancellationToken cancellationToken = default);
+    Task<CountersSnapshot> CountersGetAsync(int pid, int sampleMs, CancellationToken cancellationToken = default);
 }
