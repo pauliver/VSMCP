@@ -462,4 +462,74 @@ public sealed class VsmcpTools
         var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         return await proxy.DebugStateAsync(ct).ConfigureAwait(false);
     }
+
+    [McpServerTool(Name = "bp.set")]
+    [Description("Set a breakpoint. Supports line (file+line), function, address, and data breakpoints, with optional condition, hit count, and disabled-on-create.")]
+    public async Task<BreakpointInfo> BreakpointSet(
+        [Description("Breakpoint options. For a line breakpoint set Kind=Line, File, and Line. See BreakpointSetOptions for the full schema.")] BreakpointSetOptions options,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.BreakpointSetAsync(options, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "bp.set_tracepoint")]
+    [Description("Set a tracepoint (logpoint): emits a message to the Output window when hit without breaking. Use {expr} inside the message to evaluate expressions.")]
+    public async Task<BreakpointInfo> BreakpointSetTracepoint(
+        [Description("Absolute file path.")] string file,
+        [Description("1-based line number.")] int line,
+        [Description("Message to log. Use {expression} tokens for runtime values.")] string message,
+        [Description("Optional condition expression (break/log only when true).")] string? condition = null,
+        CancellationToken ct = default)
+    {
+        var options = new BreakpointSetOptions
+        {
+            Kind = BreakpointKind.Line,
+            File = file,
+            Line = line,
+            TracepointMessage = message,
+            ConditionKind = string.IsNullOrWhiteSpace(condition) ? BreakpointConditionKind.None : BreakpointConditionKind.WhenTrue,
+            ConditionExpression = condition,
+        };
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.BreakpointSetAsync(options, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "bp.list")]
+    [Description("List all breakpoints created through VSMCP in this session.")]
+    public async Task<BreakpointListResult> BreakpointList(CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.BreakpointListAsync(ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "bp.remove")]
+    [Description("Remove a breakpoint by its VSMCP-minted id.")]
+    public async Task BreakpointRemove(
+        [Description("Breakpoint id returned from bp.set / bp.list.")] string bpId,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        await proxy.BreakpointRemoveAsync(bpId, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "bp.enable")]
+    [Description("Enable a previously-disabled breakpoint.")]
+    public async Task<BreakpointInfo> BreakpointEnable(
+        [Description("Breakpoint id.")] string bpId,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.BreakpointEnableAsync(bpId, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "bp.disable")]
+    [Description("Disable a breakpoint without removing it.")]
+    public async Task<BreakpointInfo> BreakpointDisable(
+        [Description("Breakpoint id.")] string bpId,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.BreakpointDisableAsync(bpId, ct).ConfigureAwait(false);
+    }
 }
