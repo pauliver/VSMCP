@@ -73,6 +73,7 @@
     <Compile Include="RpcTarget.Memory.cs" />
     <Compile Include="RpcTarget.Dump.cs" />
     <Compile Include="RpcTarget.Diagnostics.cs" />
+    <Compile Include="RpcTarget.Code.cs" />
     <Compile Include="ModuleTracker.cs" />
     <Compile Include="BuildCoordinator.cs" />
     <Compile Include="VsHelpers.cs" />
@@ -88,6 +89,8 @@
     <PackageReference Include="Microsoft.VisualStudio.SDK" Version="17.9.37000" ExcludeAssets="runtime" />
     <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="17.9.3365" IncludeAssets="runtime; build; native; contentfiles; analyzers; buildtransitive" PrivateAssets="all" />
     <PackageReference Include="StreamJsonRpc" Version="2.19.27" />
+    <PackageReference Include="Microsoft.VisualStudio.LanguageServices" Version="4.9.2" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.9.2" ExcludeAssets="runtime" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>

@@ -102,4 +102,11 @@ public interface IVsmcpRpc
     // -------- Diagnostics (counters + process enumeration) --------
     Task<ProcessListResult> ProcessesListAsync(ProcessListFilter? filter, CancellationToken cancellationToken = default);
     Task<CountersSnapshot> CountersGetAsync(int pid, int sampleMs, CancellationToken cancellationToken = default);
+
+    // -------- Code intelligence (Roslyn) --------
+    Task<SymbolsResult> CodeSymbolsAsync(string file, CancellationToken cancellationToken = default);
+    Task<LocationListResult> CodeGotoDefinitionAsync(CodePosition position, CancellationToken cancellationToken = default);
+    Task<ReferencesResult> CodeFindReferencesAsync(CodePosition position, int maxResults, CancellationToken cancellationToken = default);
+    Task<DiagnosticsResult> CodeDiagnosticsAsync(string? file, int maxResults, CancellationToken cancellationToken = default);
+    Task<QuickInfoResult> CodeQuickInfoAsync(CodePosition position, CancellationToken cancellationToken = default);
 }
