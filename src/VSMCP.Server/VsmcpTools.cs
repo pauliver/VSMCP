@@ -626,4 +626,32 @@ public sealed class VsmcpTools
         var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         return await proxy.EvalExpressionAsync(options, ct).ConfigureAwait(false);
     }
+
+    [McpServerTool(Name = "modules.list")]
+    [Description("List modules loaded into the debuggee, with symbol state, load address, and version. Requires an active debug session; modules are tracked starting from when VS loads this extension.")]
+    public async Task<ModuleListResult> ModulesList(CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.ModulesListAsync(ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "symbols.load")]
+    [Description("Force-load symbols for a module (using the current symbol search paths and servers).")]
+    public async Task<SymbolStatusResult> SymbolsLoad(
+        [Description("Module id from modules.list.")] string moduleId,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.SymbolsLoadAsync(moduleId, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "symbols.status")]
+    [Description("Report symbol-load status for a module (Loaded/NotLoaded/Stripped) with a verbose search log when available.")]
+    public async Task<SymbolStatusResult> SymbolsStatus(
+        [Description("Module id from modules.list.")] string moduleId,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.SymbolsStatusAsync(moduleId, ct).ConfigureAwait(false);
+    }
 }
