@@ -93,4 +93,9 @@ public interface IVsmcpRpc
     Task<MemoryWriteResult> MemoryWriteAsync(string address, string hex, bool allowSideEffects, CancellationToken cancellationToken = default);
     Task<RegistersResult> RegistersGetAsync(int? threadId, int? frameIndex, CancellationToken cancellationToken = default);
     Task<DisasmResult> DisasmGetAsync(string address, int count, CancellationToken cancellationToken = default);
+
+    // -------- Crash-dump analysis --------
+    Task<DumpOpenResult> DumpOpenAsync(DumpOpenOptions options, CancellationToken cancellationToken = default);
+    Task<DumpSummaryResult> DumpSummaryAsync(CancellationToken cancellationToken = default);
+    Task<DumpSaveResult> DumpSaveAsync(DumpSaveOptions options, CancellationToken cancellationToken = default);
 }

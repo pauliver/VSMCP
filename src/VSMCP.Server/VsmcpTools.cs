@@ -699,4 +699,36 @@ public sealed class VsmcpTools
         var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         return await proxy.DisasmGetAsync(address, count, ct).ConfigureAwait(false);
     }
+
+    [McpServerTool(Name = "dump.open")]
+    [Description("Load a crash dump (.dmp / minidump / full dump) into Visual Studio and start a dump debug session. After this call, the standard threads.*/stack.*/frame.*/eval.*/modules.* tools operate on the dump.")]
+    public async Task<DumpOpenResult> DumpOpen(
+        [Description("Absolute path to the dump file.")] string path,
+        [Description("Optional extra symbol search paths (semicolon-separated). Reserved; VS's configured SymbolPath is used in v1.")] string? symbolPath = null,
+        [Description("Optional extra source search paths. Reserved in v1.")] string? sourcePath = null,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DumpOpenAsync(new DumpOpenOptions { Path = path, SymbolPath = symbolPath, SourcePath = sourcePath }, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "dump.summary")]
+    [Description("Summarize the current dump/debug session: faulting thread, exception text, process id, and the loaded-module count split by managed/native. Requires an active debug session (dump or live).")]
+    public async Task<DumpSummaryResult> DumpSummary(CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DumpSummaryAsync(ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "dump.save")]
+    [Description("Capture a memory dump of a running process (not necessarily the debuggee) using dbghelp!MiniDumpWriteDump. Writes to the given path; parent directory must exist and Visual Studio must have rights to read the target process.")]
+    public async Task<DumpSaveResult> DumpSave(
+        [Description("Target process id.")] int pid,
+        [Description("Absolute destination path for the dump file.")] string path,
+        [Description("When true (default), write a full-memory dump. False writes a smaller minidump (stacks + modules + handles + thread info).")] bool full = true,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DumpSaveAsync(new DumpSaveOptions { Pid = pid, Path = path, Full = full }, ct).ConfigureAwait(false);
+    }
 }
