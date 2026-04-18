@@ -87,4 +87,10 @@ public interface IVsmcpRpc
     Task<ModuleListResult> ModulesListAsync(CancellationToken cancellationToken = default);
     Task<SymbolStatusResult> SymbolsLoadAsync(string moduleId, CancellationToken cancellationToken = default);
     Task<SymbolStatusResult> SymbolsStatusAsync(string moduleId, CancellationToken cancellationToken = default);
+
+    // -------- Inspection: memory, registers, disasm --------
+    Task<MemoryReadResult> MemoryReadAsync(string address, int length, CancellationToken cancellationToken = default);
+    Task<MemoryWriteResult> MemoryWriteAsync(string address, string hex, bool allowSideEffects, CancellationToken cancellationToken = default);
+    Task<RegistersResult> RegistersGetAsync(int? threadId, int? frameIndex, CancellationToken cancellationToken = default);
+    Task<DisasmResult> DisasmGetAsync(string address, int count, CancellationToken cancellationToken = default);
 }
