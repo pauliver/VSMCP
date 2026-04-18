@@ -788,4 +788,58 @@ public sealed class VsmcpTools
     {
         return Task.FromResult(_profiler.Report(path, top));
     }
+
+    // -------- Code intelligence (Roslyn) --------
+
+    [McpServerTool(Name = "code.symbols")]
+    [Description("Return the document outline for a file: namespaces, types, and members with 1-based source spans. Requires the file to belong to a project loaded in the current solution. Works on any Roslyn-backed language (C#, VB).")]
+    public async Task<SymbolsResult> CodeSymbols(
+        [Description("Absolute path to the source file.")] string file,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.CodeSymbolsAsync(file, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "code.goto_definition")]
+    [Description("Resolve the symbol at a 1-based (line, column) and return its declaration location(s). Returns an empty Locations list when no symbol is at the position. Metadata definitions are skipped (only in-source locations are returned).")]
+    public async Task<LocationListResult> CodeGotoDefinition(
+        [Description("Source position: { File, Line (1-based), Column (1-based) }.")] CodePosition position,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.CodeGotoDefinitionAsync(position, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "code.find_references")]
+    [Description("Find all references (across the solution) to the symbol at a 1-based (line, column). Returns definition locations plus up to `maxResults` reference spans; sets Truncated when more exist.")]
+    public async Task<ReferencesResult> CodeFindReferences(
+        [Description("Source position: { File, Line (1-based), Column (1-based) }.")] CodePosition position,
+        [Description("Max number of reference spans to return (1..5000, default 500).")] int maxResults = 500,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.CodeFindReferencesAsync(position, maxResults, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "code.diagnostics")]
+    [Description("Report Roslyn diagnostics (errors, warnings, info) for a single file or the whole solution, without invoking MSBuild. When `file` is null/empty the whole solution is scanned (can be slow on large repos).")]
+    public async Task<DiagnosticsResult> CodeDiagnostics(
+        [Description("Absolute path to a file. Omit or empty to scan the whole solution.")] string? file = null,
+        [Description("Max number of diagnostics to return (1..10000, default 500).")] int maxResults = 500,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.CodeDiagnosticsAsync(file, maxResults, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "code.quick_info")]
+    [Description("Return quick-info for the symbol at a 1-based (line, column): display-form signature, kind, and documentation XML (if any). Returns an empty result when no symbol is at the position.")]
+    public async Task<QuickInfoResult> CodeQuickInfo(
+        [Description("Source position: { File, Line (1-based), Column (1-based) }.")] CodePosition position,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.CodeQuickInfoAsync(position, ct).ConfigureAwait(false);
+    }
 }
