@@ -79,15 +79,20 @@ Optional file: `%LOCALAPPDATA%\VSMCP\config.json`
 
 ```json
 {
-  "logLevel": "info",
+  "logLevel": "warning",
   "allowSideEffects": false,
   "allowDbgEng": false,
-  "defaultTimeoutMs": 30000
+  "defaultTimeoutMs": 30000,
+  "fileLoggingEnabled": false,
+  "logDirectory": null
 }
 ```
 
+- `logLevel` — `trace | debug | info | warning | error | critical | none`. Default `warning`.
+- `fileLoggingEnabled` — when true, the bridge writes date-rolling log files to `logDirectory` (default `%LOCALAPPDATA%\VSMCP\logs`). Off by default because MCP clients already capture stderr.
 - `allowSideEffects` — gate `eval.expression` and `memory.write`. Off by default.
 - `allowDbgEng` — allow the `dump.dbgeng` DbgEng passthrough (`!analyze -v`, etc.). Off by default.
+- `defaultTimeoutMs` — fallback timeout for RPC calls that don't specify one.
 
 ---
 

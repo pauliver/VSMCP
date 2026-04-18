@@ -29,6 +29,11 @@ jobs:
         run: |
           msbuild src/VSMCP.sln -t:Restore,Build -p:Configuration=Release -v:minimal -nologo
 
+      - name: Pack VSMCP.Server (dotnet tool)
+        shell: pwsh
+        run: |
+          dotnet pack src/VSMCP.Server/VSMCP.Server.csproj -c Release --no-build -o artifacts -nologo
+
       - name: Upload VSIX
         uses: actions/upload-artifact@v4
         with:
@@ -36,9 +41,16 @@ jobs:
           path: src/VSMCP.Vsix/bin/Release/*.vsix
           if-no-files-found: error
 
-      - name: Upload VSMCP.Server
+      - name: Upload VSMCP.Server (build output)
         uses: actions/upload-artifact@v4
         with:
           name: VSMCP.Server
           path: src/VSMCP.Server/bin/Release/**/*
+          if-no-files-found: error
+
+      - name: Upload VSMCP.Server nupkg
+        uses: actions/upload-artifact@v4
+        with:
+          name: VSMCP.Server.nupkg
+          path: artifacts/*.nupkg
           if-no-files-found: error
