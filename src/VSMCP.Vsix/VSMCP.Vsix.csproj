@@ -62,6 +62,10 @@
     <Compile Include="VSMCPPackage.cs" />
     <Compile Include="PipeHost.cs" />
     <Compile Include="RpcTarget.cs" />
+    <Compile Include="RpcTarget.Solution.cs" />
+    <Compile Include="RpcTarget.Project.cs" />
+    <Compile Include="RpcTarget.Files.cs" />
+    <Compile Include="VsHelpers.cs" />
   </ItemGroup>
 
   <ItemGroup>

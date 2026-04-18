@@ -14,7 +14,7 @@ namespace VSMCP.Vsix;
 /// JSON-RPC method surface. VS APIs touched here must run on the UI thread;
 /// we switch at the top of each method so callers can stay free-threaded.
 /// </summary>
-internal sealed class RpcTarget : IVsmcpRpc
+internal sealed partial class RpcTarget : IVsmcpRpc
 {
     private readonly VSMCPPackage _package;
     private readonly JoinableTaskFactory _jtf;
