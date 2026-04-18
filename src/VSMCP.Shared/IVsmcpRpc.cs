@@ -82,4 +82,9 @@ public interface IVsmcpRpc
     Task<VariableListResult> FrameLocalsAsync(int? threadId, int? frameIndex, int expandDepth, CancellationToken cancellationToken = default);
     Task<VariableListResult> FrameArgumentsAsync(int? threadId, int? frameIndex, int expandDepth, CancellationToken cancellationToken = default);
     Task<EvalResult> EvalExpressionAsync(EvalOptions options, CancellationToken cancellationToken = default);
+
+    // -------- Inspection: modules & symbols --------
+    Task<ModuleListResult> ModulesListAsync(CancellationToken cancellationToken = default);
+    Task<SymbolStatusResult> SymbolsLoadAsync(string moduleId, CancellationToken cancellationToken = default);
+    Task<SymbolStatusResult> SymbolsStatusAsync(string moduleId, CancellationToken cancellationToken = default);
 }
