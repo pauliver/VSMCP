@@ -127,4 +127,4 @@ See [`DesignDoc.md`](./DesignDoc.md) for architecture, then pick an open milesto
 
 ## License
 
-TBD — likely MIT.
+[MIT](./LICENSE).
