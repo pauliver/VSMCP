@@ -72,6 +72,7 @@
     <Compile Include="RpcTarget.Modules.cs" />
     <Compile Include="RpcTarget.Memory.cs" />
     <Compile Include="RpcTarget.Dump.cs" />
+    <Compile Include="RpcTarget.Diagnostics.cs" />
     <Compile Include="ModuleTracker.cs" />
     <Compile Include="BuildCoordinator.cs" />
     <Compile Include="VsHelpers.cs" />
