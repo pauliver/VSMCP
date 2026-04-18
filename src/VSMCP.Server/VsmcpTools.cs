@@ -235,4 +235,104 @@ public sealed class VsmcpTools
         var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         await proxy.EditorSaveAllAsync(ct).ConfigureAwait(false);
     }
+
+    // -------- Build --------
+
+    [McpServerTool(Name = "build.start")]
+    [Description("Start building the current solution (or a subset of projects). Returns immediately with a buildId. Poll build.status or call build.wait.")]
+    public async Task<BuildHandle> BuildStart(
+        [Description("Solution configuration name (e.g. 'Debug', 'Release'). Omit to use the active configuration.")] string? configuration = null,
+        [Description("Target platform (e.g. 'Any CPU', 'x64'). Omit to use the active platform.")] string? platform = null,
+        [Description("Optional project ids (UniqueName/Name/FullPath) to limit the build. Omit to build the whole solution.")] IReadOnlyList<string>? projectIds = null,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.BuildStartAsync(configuration, platform, projectIds, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "build.rebuild")]
+    [Description("Clean then build the solution (or selected projects). Returns a buildId to poll.")]
+    public async Task<BuildHandle> BuildRebuild(
+        [Description("Solution configuration name.")] string? configuration = null,
+        [Description("Target platform.")] string? platform = null,
+        [Description("Optional project ids to limit the rebuild.")] IReadOnlyList<string>? projectIds = null,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.BuildRebuildAsync(configuration, platform, projectIds, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "build.clean")]
+    [Description("Clean the solution (or selected projects). Returns a buildId for parity with build.start.")]
+    public async Task<BuildHandle> BuildClean(
+        [Description("Solution configuration name.")] string? configuration = null,
+        [Description("Target platform.")] string? platform = null,
+        [Description("Optional project ids to limit the clean.")] IReadOnlyList<string>? projectIds = null,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.BuildCleanAsync(configuration, platform, projectIds, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "build.status")]
+    [Description("Current status of a build started via build.start / build.rebuild / build.clean.")]
+    public async Task<BuildStatus> BuildStatusQuery(
+        [Description("Build id returned from build.start.")] string buildId,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.BuildStatusAsync(buildId, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "build.wait")]
+    [Description("Block until the build reaches a terminal state or the timeout elapses. Returns TimedOut status cleanly when the timer wins.")]
+    public async Task<BuildStatus> BuildWait(
+        [Description("Build id returned from build.start.")] string buildId,
+        [Description("Max milliseconds to wait. Omit or set to 0 for no timeout.")] int? timeoutMs = null,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.BuildWaitAsync(buildId, timeoutMs is > 0 ? timeoutMs : null, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "build.cancel")]
+    [Description("Request cancellation of an in-flight build.")]
+    public async Task<BuildStatus> BuildCancel(
+        [Description("Build id returned from build.start.")] string buildId,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.BuildCancelAsync(buildId, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "build.errors")]
+    [Description("Errors (severity=Error) produced by a build. Valid after the build has reached a terminal state.")]
+    public async Task<IReadOnlyList<BuildDiagnostic>> BuildErrors(
+        [Description("Build id returned from build.start.")] string buildId,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.BuildErrorsAsync(buildId, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "build.warnings")]
+    [Description("Warnings (severity=Warning) produced by a build. Valid after the build has reached a terminal state.")]
+    public async Task<IReadOnlyList<BuildDiagnostic>> BuildWarnings(
+        [Description("Build id returned from build.start.")] string buildId,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.BuildWarningsAsync(buildId, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "build.output")]
+    [Description("Raw text captured from an Output window pane (defaults to the Build pane) for a completed build.")]
+    public async Task<BuildOutput> BuildOutputText(
+        [Description("Build id returned from build.start.")] string buildId,
+        [Description("Output window pane name. Defaults to 'Build'.")] string? pane = null,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.BuildOutputAsync(buildId, pane, ct).ConfigureAwait(false);
+    }
 }

@@ -38,4 +38,15 @@ public interface IVsmcpRpc
     Task EditorOpenAsync(string path, int? line, int? column, CancellationToken cancellationToken = default);
     Task EditorSaveAsync(string path, CancellationToken cancellationToken = default);
     Task EditorSaveAllAsync(CancellationToken cancellationToken = default);
+
+    // -------- Build --------
+    Task<BuildHandle> BuildStartAsync(string? configuration, string? platform, IReadOnlyList<string>? projectIds, CancellationToken cancellationToken = default);
+    Task<BuildHandle> BuildRebuildAsync(string? configuration, string? platform, IReadOnlyList<string>? projectIds, CancellationToken cancellationToken = default);
+    Task<BuildHandle> BuildCleanAsync(string? configuration, string? platform, IReadOnlyList<string>? projectIds, CancellationToken cancellationToken = default);
+    Task<BuildStatus> BuildStatusAsync(string buildId, CancellationToken cancellationToken = default);
+    Task<BuildStatus> BuildWaitAsync(string buildId, int? timeoutMs, CancellationToken cancellationToken = default);
+    Task<BuildStatus> BuildCancelAsync(string buildId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<BuildDiagnostic>> BuildErrorsAsync(string buildId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<BuildDiagnostic>> BuildWarningsAsync(string buildId, CancellationToken cancellationToken = default);
+    Task<BuildOutput> BuildOutputAsync(string buildId, string? pane, CancellationToken cancellationToken = default);
 }
