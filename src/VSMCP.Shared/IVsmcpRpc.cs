@@ -49,4 +49,19 @@ public interface IVsmcpRpc
     Task<IReadOnlyList<BuildDiagnostic>> BuildErrorsAsync(string buildId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<BuildDiagnostic>> BuildWarningsAsync(string buildId, CancellationToken cancellationToken = default);
     Task<BuildOutput> BuildOutputAsync(string buildId, string? pane, CancellationToken cancellationToken = default);
+
+    // -------- Debug control --------
+    Task<DebugActionResult> DebugLaunchAsync(DebugLaunchOptions options, CancellationToken cancellationToken = default);
+    Task<DebugActionResult> DebugAttachAsync(DebugAttachOptions options, CancellationToken cancellationToken = default);
+    Task<DebugActionResult> DebugStopAsync(CancellationToken cancellationToken = default);
+    Task<DebugActionResult> DebugDetachAsync(CancellationToken cancellationToken = default);
+    Task<DebugActionResult> DebugRestartAsync(CancellationToken cancellationToken = default);
+    Task<DebugActionResult> DebugBreakAllAsync(CancellationToken cancellationToken = default);
+    Task<DebugActionResult> DebugContinueAsync(CancellationToken cancellationToken = default);
+    Task<DebugActionResult> DebugStepIntoAsync(CancellationToken cancellationToken = default);
+    Task<DebugActionResult> DebugStepOverAsync(CancellationToken cancellationToken = default);
+    Task<DebugActionResult> DebugStepOutAsync(CancellationToken cancellationToken = default);
+    Task<DebugActionResult> DebugRunToCursorAsync(string file, int line, CancellationToken cancellationToken = default);
+    Task<DebugActionResult> DebugSetNextStatementAsync(string file, int line, bool allowSideEffects, CancellationToken cancellationToken = default);
+    Task<DebugInfo> DebugStateAsync(CancellationToken cancellationToken = default);
 }
