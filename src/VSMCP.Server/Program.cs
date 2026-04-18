@@ -11,6 +11,7 @@ builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 builder.Logging.SetMinimumLevel(LogLevel.Warning);
 
 builder.Services.AddSingleton<VsConnection>();
+builder.Services.AddSingleton<ProfilerHost>();
 
 builder.Services
     .AddMcpServer()

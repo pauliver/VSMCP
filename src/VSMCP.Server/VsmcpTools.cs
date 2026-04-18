@@ -16,8 +16,13 @@ namespace VSMCP.Server;
 public sealed class VsmcpTools
 {
     private readonly VsConnection _connection;
+    private readonly ProfilerHost _profiler;
 
-    public VsmcpTools(VsConnection connection) => _connection = connection;
+    public VsmcpTools(VsConnection connection, ProfilerHost profiler)
+    {
+        _connection = connection;
+        _profiler = profiler;
+    }
 
     [McpServerTool(Name = "ping")]
     [Description("Round-trip ping to the connected Visual Studio instance. Returns 'pong' and a server-side timestamp.")]
@@ -744,7 +749,7 @@ public sealed class VsmcpTools
     }
 
     [McpServerTool(Name = "counters.get")]
-    [Description("One-shot snapshot of process-level counters: CPU% (sampled across `sampleMs`), working set, private/virtual memory, thread/handle counts, and uptime. Uses System.Diagnostics.Process — no profiler attachment required. For streaming counters, see a future counters.subscribe.")]
+    [Description("One-shot snapshot of process-level counters: CPU% (sampled across `sampleMs`), working set, private/virtual memory, thread/handle counts, and uptime. Uses System.Diagnostics.Process — no profiler attachment required. Poll this from the MCP client to build a timeline.")]
     public async Task<CountersSnapshot> CountersGet(
         [Description("Target process id.")] int pid,
         [Description("Sampling window in milliseconds for CPU% (clamped to 50..10000). Default 200ms.")] int sampleMs = 200,
@@ -752,5 +757,35 @@ public sealed class VsmcpTools
     {
         var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         return await proxy.CountersGetAsync(pid, sampleMs, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "profiler.start")]
+    [Description("Start an EventPipe profiling session against a .NET 5+ process. Returns a session id and an output path; the .nettrace is streamed to that file until profiler.stop is called. Does not require Visual Studio to be running or attached. Modes: CpuSampling (default) captures CPU samples + JIT map; Allocations captures sampled object allocations + GC.")]
+    public Task<ProfilerStartResult> ProfilerStart(
+        [Description("Target process id. Must be a running .NET 5+ process reachable via its diagnostic port.")] int pid,
+        [Description("Profiler mode. 0 = CpuSampling (default), 1 = Allocations.")] ProfilerMode mode = ProfilerMode.CpuSampling,
+        [Description("Optional absolute output path for the .nettrace. Default: %TEMP%\\vsmcp-<ts>-<pid>-<mode>.nettrace.")] string? outputPath = null,
+        CancellationToken ct = default)
+    {
+        return Task.FromResult(_profiler.Start(pid, mode, outputPath));
+    }
+
+    [McpServerTool(Name = "profiler.stop")]
+    [Description("Stop a running EventPipe session by id. Flushes the .nettrace to disk and returns the final file size and wall-clock duration.")]
+    public async Task<ProfilerStopResult> ProfilerStop(
+        [Description("Session id from profiler.start.")] string sessionId,
+        CancellationToken ct = default)
+    {
+        return await _profiler.StopAsync(sessionId, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "profiler.report")]
+    [Description("Summarize a .nettrace file: total sample count, session duration, and the top N hot functions by self-time (leaf-of-stack) sample count. Uses Microsoft.Diagnostics.Tracing.TraceEvent; symbols come from whatever is on disk or in the trace's JIT rundown.")]
+    public Task<ProfilerReport> ProfilerReport(
+        [Description("Absolute path to a .nettrace file (from profiler.stop).")] string path,
+        [Description("Max number of hot functions to return (1..1000, default 20).")] int top = 20,
+        CancellationToken ct = default)
+    {
+        return Task.FromResult(_profiler.Report(path, top));
     }
 }
