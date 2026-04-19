@@ -18,18 +18,23 @@ public sealed class VSMCPPackage : AsyncPackage
 {
     public const string PackageGuidString = "7e0b4e3e-0000-0000-0000-000000000001";
 
+    public static VSMCPPackage? Instance { get; private set; }
+
     private PipeHost? _pipeHost;
     private ModuleTracker? _moduleTracker;
-    private HostActivity? _activity;
+    private readonly HostActivity _activity = new HostActivity();
     private StatusBarReporter? _statusBar;
 
+    public VSMCPPackage()
+    {
+        Instance = this;
+    }
+
     internal ModuleTracker? Modules => _moduleTracker;
-    internal HostActivity Activity => _activity ??= new HostActivity();
+    internal HostActivity Activity => _activity;
 
     protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
     {
-        _activity = new HostActivity();
-
         await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
         var vsDebugger = await GetServiceAsync(typeof(SVsShellDebugger)) as IVsDebugger;
         _moduleTracker = new ModuleTracker(vsDebugger);
@@ -54,6 +59,7 @@ public sealed class VSMCPPackage : AsyncPackage
             _pipeHost = null;
             _moduleTracker?.Dispose();
             _moduleTracker = null;
+            if (ReferenceEquals(Instance, this)) Instance = null;
         }
         base.Dispose(disposing);
     }
