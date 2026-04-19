@@ -21,6 +21,7 @@ public sealed class VSMCPPackage : AsyncPackage
     private PipeHost? _pipeHost;
     private ModuleTracker? _moduleTracker;
     private HostActivity? _activity;
+    private StatusBarReporter? _statusBar;
 
     internal ModuleTracker? Modules => _moduleTracker;
     internal HostActivity Activity => _activity ??= new HostActivity();
@@ -35,6 +36,11 @@ public sealed class VSMCPPackage : AsyncPackage
         _pipeHost = new PipeHost(this, JoinableTaskFactory, _activity);
         _pipeHost.Start();
 
+        if (await GetServiceAsync(typeof(SVsStatusbar)) is IVsStatusbar bar)
+        {
+            _statusBar = new StatusBarReporter(_activity, bar, JoinableTaskFactory);
+        }
+
         await VsmcpCommands.InitializeAsync(this);
     }
 
@@ -42,6 +48,8 @@ public sealed class VSMCPPackage : AsyncPackage
     {
         if (disposing)
         {
+            _statusBar?.Dispose();
+            _statusBar = null;
             _pipeHost?.Dispose();
             _pipeHost = null;
             _moduleTracker?.Dispose();
