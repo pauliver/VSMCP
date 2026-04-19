@@ -22,8 +22,10 @@ internal sealed partial class RpcTarget : IVsmcpRpc
     /// <summary>
     /// Teaching mode: when true, the pipe host raises the VS main window to the foreground
     /// after every dispatched RPC so a human observer always sees the IDE react. Default on.
+    /// Seeded from <see cref="VsmcpGlobalDefaults.AutoFocusDefault"/> (which the tool window
+    /// updates) so new connections honor the user's most recent UI choice.
     /// </summary>
-    public bool AutoFocusEnabled { get; set; } = true;
+    public bool AutoFocusEnabled { get; set; } = VsmcpGlobalDefaults.AutoFocusDefault;
 
     public RpcTarget(VSMCPPackage package, JoinableTaskFactory jtf)
     {
