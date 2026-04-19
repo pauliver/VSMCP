@@ -1,7 +1,7 @@
 # VSMCP — Design Document
 
 **Project:** Model Context Protocol server for Microsoft Visual Studio 2022 Enterprise
-**Status:** Draft (v0.1)
+**Status:** Draft (v0.2) — post-M11
 **Last updated:** 2026-04-18
 
 ---
@@ -75,6 +75,19 @@ Three assemblies:
 - Tools: see §5 catalog.
 - Resources: expose `vsmcp://solution/<guid>/*` for quick reads (solution file, loaded projects, recent output).
 - Prompts: a small set of curated prompts ("analyze this crash dump", "profile this startup path") that chain the raw tools.
+
+### 3.6 Teaching mode (auto-focus)
+
+VSMCP is also a teaching tool — users often watch along as an AI drives VS. When teaching mode is enabled (default on), the pipe host activates the VS main window after every dispatched RPC so any observer sees the IDE react in real time. The flag is per-connection on `RpcTarget.AutoFocusEnabled`, seeded from the tool-window's checkbox (`VsmcpGlobalDefaults.AutoFocusDefault`), and can be toggled at runtime via `vs.set_autofocus`.
+
+### 3.7 In-VS UI surface
+
+The VSIX exposes two in-IDE surfaces so users can see live connection state without reading logs:
+
+- **Tool window** — `Tools → VSMCP Panel`. Traffic-light status dot, pipe name with copy button, last-activity age, total RPCs + errors, last error, a 50-entry recent-RPC log, teaching-mode checkbox, and an "Open logs folder" button. Built as a `ToolWindowPane` + code-only WPF `UserControl` (no XAML) so the classic VSIX csproj doesn't need Page/Markup build actions.
+- **Status bar** — a `StatusBarReporter` mirrors `HostActivity` onto the VS main status bar: `VSMCP: connected (N) · M RPCs · Ks idle` (or `waiting for client` / `idle`). Reasserts every 2s so other components can't silently stomp on the text.
+
+Both surfaces subscribe to a single `HostActivity` observable fed by `PipeHost` (connect, disconnect, and per-RPC completion with elapsed ms + error).
 
 ---
 
@@ -158,11 +171,17 @@ Edits to files that are open in VS flow through `ITextBuffer` so they participat
 - `dump.dbgeng({command})` — escape hatch to run DbgEng commands (`!analyze -v`, `!heap`, ...) when VS lacks a native equivalent.
 
 ### 5.7 Diagnostics & performance (M8)
+- `processes.list()` — running processes visible to the debugger, used to drive `debug.attach`
+- `counters.get({pid, names[]})` — one-shot read of perf counters
+- `counters.subscribe({pid, names[], intervalMs})` → sessionId; server polls counters in the background
+- `counters.read(sessionId)` → samples collected since last read
+- `counters.unsubscribe(sessionId)`
 - `profiler.start({mode: "cpu-sampling"|"instrumentation"|"allocations"|"gpu"|"database", targetPid?})` → sessionId
 - `profiler.stop(sessionId)` → diagsession path
 - `profiler.report(sessionId | path)` → hot functions, call tree, allocations, summary stats
-- `counters.subscribe({names[], intervalMs})` → stream of samples via notifications
-- `trace.collect({providers[], durationMs, output})` — ETW via TraceEvent
+- `trace.start({providers[], output})` → sessionId
+- `trace.stop(sessionId)`
+- `trace.report(sessionId | path)` — ETW event summary (counts, top stacks)
 
 ### 5.8 Code intelligence (M9)
 - `code.symbols({file})` — document outline via Roslyn
@@ -173,7 +192,19 @@ Edits to files that are open in VS flow through `ITextBuffer` so they participat
 
 ### 5.9 Meta
 - `ping()`, `vs.status()`, `vs.list_instances()`, `vs.select(instanceId)`
-- `events.subscribe({kinds[]})` / `events.unsubscribe()`
+- `vs.focus()` — raise the VS main window to the foreground (also used internally by teaching mode)
+- `vs.set_autofocus({enabled})` / `vs.get_autofocus()` — toggle per-connection teaching mode
+- `events.subscribe({kinds[]})` / `events.unsubscribe()` *(planned; not yet implemented)*
+
+### 5.10 Batch variants
+
+High-fanout operations have `_many` companions that run the inner op sequentially on the VSIX (VS APIs are UI-thread serialized, so parallelism offers no speedup) and return a `BatchResult<T>` with per-item success/error so a single bad input doesn't fail the whole batch:
+
+- `bp.set_many`, `bp.remove_many`, `bp.enable_many`, `bp.disable_many`
+- `eval.expression_many`
+- `file.read_many`
+- `memory.read_many`
+- `symbols.load_many`
 
 ---
 
@@ -231,7 +262,7 @@ The raw MCP tool catalog (§5) is deliberately low-level — one op per call. Sk
 
 Skills ship in `skills/` at the repo root and are installable for Claude Code (`~/.claude/skills/`) and Claude Desktop.
 
-### 10.1 Skill set (M11)
+### 10.1 Skill set (M11 — shipped)
 
 | Skill            | When to trigger                                               | Tools composed                                                                 |
 |------------------|---------------------------------------------------------------|--------------------------------------------------------------------------------|
