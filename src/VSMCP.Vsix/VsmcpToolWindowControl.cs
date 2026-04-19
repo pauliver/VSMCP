@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using Microsoft.VisualStudio.Threading;
 using IoPath = System.IO.Path;
 
 namespace VSMCP.Vsix;
@@ -18,6 +19,7 @@ namespace VSMCP.Vsix;
 internal sealed class VsmcpToolWindowControl : UserControl
 {
     private readonly HostActivity _activity;
+    private readonly JoinableTaskFactory _jtf;
     private readonly DispatcherTimer _tick;
 
     private readonly Ellipse _statusDot;
@@ -29,9 +31,10 @@ internal sealed class VsmcpToolWindowControl : UserControl
     private readonly CheckBox _autoFocus;
     private readonly ListBox _recent;
 
-    public VsmcpToolWindowControl(HostActivity activity)
+    public VsmcpToolWindowControl(HostActivity activity, JoinableTaskFactory jtf)
     {
         _activity = activity;
+        _jtf = jtf;
         Padding = new Thickness(8);
         Background = SystemColors.WindowBrush;
 
@@ -181,12 +184,14 @@ internal sealed class VsmcpToolWindowControl : UserControl
 
     private void OnActivityChanged(object? sender, EventArgs e)
     {
-        if (!Dispatcher.CheckAccess())
+        // Changed fires from the pipe host thread. Route through JTF so we always
+        // land on the VS main UI thread, even if this Control's Dispatcher somehow
+        // points elsewhere (e.g., async tool-window restore quirks).
+        _jtf.RunAsync(async () =>
         {
-            Dispatcher.BeginInvoke(new Action(Refresh));
-            return;
-        }
-        Refresh();
+            await _jtf.SwitchToMainThreadAsync();
+            Refresh();
+        }).Task.Forget();
     }
 
     private void Refresh()
