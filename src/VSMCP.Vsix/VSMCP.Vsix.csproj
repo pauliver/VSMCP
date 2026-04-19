@@ -113,7 +113,8 @@
     <ProjectReference Include="..\VSMCP.Shared\VSMCP.Shared.csproj">
       <Project>{A1111111-1111-1111-1111-111111111111}</Project>
       <Name>VSMCP.Shared</Name>
-      <Private>false</Private>
+      <Private>true</Private>
+      <IncludeInVSIX>true</IncludeInVSIX>
     </ProjectReference>
   </ItemGroup>
 
