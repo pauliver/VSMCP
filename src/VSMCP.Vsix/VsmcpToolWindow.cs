@@ -21,13 +21,9 @@ public sealed class VsmcpToolWindow : ToolWindowPane
     protected override void Initialize()
     {
         base.Initialize();
-        if (Package is VSMCPPackage pkg)
-        {
-            Content = new VsmcpToolWindowControl(pkg.Activity);
-        }
-        else
-        {
-            Content = new VsmcpToolWindowControl(new HostActivity());
-        }
+        var pkg = (Package as VSMCPPackage) ?? VSMCPPackage.Instance;
+        if (pkg is null)
+            throw new InvalidOperationException("VSMCPPackage instance not available — tool window cannot bind to pipe activity.");
+        Content = new VsmcpToolWindowControl(pkg.Activity);
     }
 }
