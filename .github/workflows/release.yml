@@ -1,0 +1,121 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (must already exist)"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+  VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $ref = "${{ github.event.inputs.tag || github.ref_name }}"
+          $tag = $ref -replace '^refs/tags/', ''
+          $version = $tag -replace '^v', ''
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Releasing tag=$tag version=$version"
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+        with:
+          msbuild-architecture: x64
+
+      - name: Restore + Build (Release)
+        shell: pwsh
+        run: |
+          msbuild src/VSMCP.sln -t:Restore,Build `
+            -p:Configuration=Release `
+            -p:Version=${{ steps.version.outputs.version }} `
+            -p:PackageVersion=${{ steps.version.outputs.version }} `
+            -v:minimal -nologo
+
+      - name: Pack VSMCP.Server (dotnet tool)
+        shell: pwsh
+        run: |
+          dotnet pack src/VSMCP.Server/VSMCP.Server.csproj `
+            -c Release --no-build -o artifacts `
+            -p:PackageVersion=${{ steps.version.outputs.version }} `
+            -nologo
+
+      - name: Stage artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release-artifacts | Out-Null
+          Copy-Item src/VSMCP.Vsix/bin/Release/*.vsix release-artifacts/
+          Copy-Item artifacts/*.nupkg release-artifacts/
+          Get-ChildItem release-artifacts | Format-Table -AutoSize
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+          generate_release_notes: true
+          files: |
+            release-artifacts/*.vsix
+            release-artifacts/*.nupkg
+
+      # ---- Optional publishing steps. Both are no-ops when the secret is absent. ----
+
+      - name: Publish to NuGet
+        if: env.NUGET_API_KEY != ''
+        shell: pwsh
+        run: |
+          $pkg = Get-ChildItem artifacts/*.nupkg | Select-Object -First 1
+          dotnet nuget push $pkg.FullName `
+            --api-key $env:NUGET_API_KEY `
+            --source https://api.nuget.org/v3/index.json `
+            --skip-duplicate
+
+      - name: Publish to Visual Studio Marketplace
+        if: env.VSCE_PAT != ''
+        shell: pwsh
+        run: |
+          $vsix = Get-ChildItem src/VSMCP.Vsix/bin/Release/*.vsix | Select-Object -First 1
+          $manifest = "release/publishManifest.json"
+          if (-not (Test-Path $manifest))
+          {
+            Write-Host "::warning::$manifest not found — skipping Marketplace publish."
+            exit 0
+          }
+          $publisher = Get-ChildItem -Path `
+            "C:\Program Files\Microsoft Visual Studio\2022\*\VSSDK\VisualStudioIntegration\Tools\Bin\VsixPublisher.exe" `
+            -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $publisher)
+          {
+            Write-Host "::error::VsixPublisher.exe not found on runner; install the VS SDK."
+            exit 1
+          }
+          & $publisher.FullName publish `
+            -payload $vsix.FullName `
+            -publishManifest $manifest `
+            -personalAccessToken $env:VSCE_PAT
