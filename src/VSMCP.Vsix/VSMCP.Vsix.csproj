@@ -53,9 +53,15 @@
 
   <ItemGroup>
     <Reference Include="System" />
+    <Reference Include="System.ComponentModel.Composition" />
     <Reference Include="System.Core" />
+    <Reference Include="System.Design" />
     <Reference Include="System.Xml" />
     <Reference Include="System.Xml.Linq" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="System.Xaml" />
   </ItemGroup>
 
   <ItemGroup>
@@ -76,6 +82,10 @@
     <Compile Include="RpcTarget.Code.cs" />
     <Compile Include="RpcTarget.Focus.cs" />
     <Compile Include="FocusHelper.cs" />
+    <Compile Include="HostActivity.cs" />
+    <Compile Include="VsmcpToolWindow.cs" />
+    <Compile Include="VsmcpToolWindowControl.cs" />
+    <Compile Include="VsmcpCommands.cs" />
     <Compile Include="ModuleTracker.cs" />
     <Compile Include="BuildCoordinator.cs" />
     <Compile Include="VsHelpers.cs" />
@@ -85,6 +95,9 @@
     <None Include="source.extension.vsixmanifest">
       <SubType>Designer</SubType>
     </None>
+    <VSCTCompile Include="VSMCPPackage.vsct">
+      <ResourceName>Menus.ctmenu</ResourceName>
+    </VSCTCompile>
   </ItemGroup>
 
   <ItemGroup>

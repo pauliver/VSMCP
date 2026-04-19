@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommandTable xmlns="http://schemas.microsoft.com/VisualStudio/2005-10-18/CommandTable" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <Extern href="stdidcmd.h" />
+  <Extern href="vsshlids.h" />
+
+  <Commands package="guidVSMCPPackage">
+    <Groups>
+      <Group guid="guidVSMCPCommandSet" id="VsmcpToolsGroup" priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_TOOLS" />
+      </Group>
+    </Groups>
+
+    <Buttons>
+      <Button guid="guidVSMCPCommandSet" id="cmdidShowToolWindow" priority="0x0100" type="Button">
+        <Parent guid="guidVSMCPCommandSet" id="VsmcpToolsGroup" />
+        <Strings>
+          <ButtonText>VSMCP Panel</ButtonText>
+          <CommandName>VSMCP Panel</CommandName>
+        </Strings>
+      </Button>
+    </Buttons>
+  </Commands>
+
+  <Symbols>
+    <GuidSymbol name="guidVSMCPPackage" value="{7e0b4e3e-0000-0000-0000-000000000001}" />
+
+    <GuidSymbol name="guidVSMCPCommandSet" value="{7e0b4e3e-0000-0000-0000-000000000020}">
+      <IDSymbol name="VsmcpToolsGroup" value="0x1020" />
+      <IDSymbol name="cmdidShowToolWindow" value="0x0100" />
+    </GuidSymbol>
+  </Symbols>
+</CommandTable>
