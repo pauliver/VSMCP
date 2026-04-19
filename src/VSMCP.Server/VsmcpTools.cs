@@ -14,7 +14,7 @@ namespace VSMCP.Server;
 /// <see cref="ErrorCodes.NotConnected"/> when no instance is reachable.
 /// </summary>
 [McpServerToolType]
-public sealed class VsmcpTools
+public sealed partial class VsmcpTools
 {
     private readonly VsConnection _connection;
     private readonly ProfilerHost _profiler;
