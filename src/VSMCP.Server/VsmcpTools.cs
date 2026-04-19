@@ -47,6 +47,32 @@ public sealed class VsmcpTools
         return await proxy.GetStatusAsync(ct).ConfigureAwait(false);
     }
 
+    [McpServerTool(Name = "vs.focus")]
+    [Description("Bring the connected Visual Studio main window to the foreground. Useful for teaching/demos when the human needs to see the IDE react to an AI tool call.")]
+    public async Task<FocusResult> VsFocus(CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.VsFocusAsync(ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "vs.set_autofocus")]
+    [Description("Toggle teaching-mode auto-focus. When enabled, every dispatched tool call raises the VS window so an observer always sees the effect. Default: enabled.")]
+    public async Task<AutoFocusResult> VsSetAutoFocus(
+        [Description("True to auto-focus after every tool call (teaching mode); false to suppress.")] bool enabled,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.VsSetAutoFocusAsync(enabled, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "vs.get_autofocus")]
+    [Description("Return whether teaching-mode auto-focus is currently enabled on the connected VS instance.")]
+    public async Task<AutoFocusResult> VsGetAutoFocus(CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.VsGetAutoFocusAsync(ct).ConfigureAwait(false);
+    }
+
     [McpServerTool(Name = "vs.list_instances")]
     [Description("Enumerate running Visual Studio instances that have the VSMCP extension loaded. Use this when multiple VS windows are open.")]
     public Task<System.Collections.Generic.IReadOnlyList<VsInstance>> VsListInstances(CancellationToken ct = default)

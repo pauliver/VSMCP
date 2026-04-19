@@ -14,6 +14,9 @@ public interface IVsmcpRpc
     Task<HandshakeResult> HandshakeAsync(int clientMajor, int clientMinor, CancellationToken cancellationToken = default);
     Task<PingResult> PingAsync(CancellationToken cancellationToken = default);
     Task<VsStatus> GetStatusAsync(CancellationToken cancellationToken = default);
+    Task<FocusResult> VsFocusAsync(CancellationToken cancellationToken = default);
+    Task<AutoFocusResult> VsSetAutoFocusAsync(bool enabled, CancellationToken cancellationToken = default);
+    Task<AutoFocusResult> VsGetAutoFocusAsync(CancellationToken cancellationToken = default);
 
     // -------- Solution --------
     Task<SolutionInfo> SolutionInfoAsync(CancellationToken cancellationToken = default);

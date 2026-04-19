@@ -74,6 +74,8 @@
     <Compile Include="RpcTarget.Dump.cs" />
     <Compile Include="RpcTarget.Diagnostics.cs" />
     <Compile Include="RpcTarget.Code.cs" />
+    <Compile Include="RpcTarget.Focus.cs" />
+    <Compile Include="FocusHelper.cs" />
     <Compile Include="ModuleTracker.cs" />
     <Compile Include="BuildCoordinator.cs" />
     <Compile Include="VsHelpers.cs" />

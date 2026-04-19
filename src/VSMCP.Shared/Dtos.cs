@@ -38,3 +38,15 @@ public sealed class VsInstance
     public string? MainWindowTitle { get; set; }
     public string? SolutionPath { get; set; }
 }
+
+public sealed class FocusResult
+{
+    public bool Focused { get; set; }
+    public string? Hwnd { get; set; }
+    public string? Reason { get; set; }
+}
+
+public sealed class AutoFocusResult
+{
+    public bool Enabled { get; set; }
+}

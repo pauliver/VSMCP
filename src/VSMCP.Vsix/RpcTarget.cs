@@ -19,6 +19,12 @@ internal sealed partial class RpcTarget : IVsmcpRpc
     private readonly VSMCPPackage _package;
     private readonly JoinableTaskFactory _jtf;
 
+    /// <summary>
+    /// Teaching mode: when true, the pipe host raises the VS main window to the foreground
+    /// after every dispatched RPC so a human observer always sees the IDE react. Default on.
+    /// </summary>
+    public bool AutoFocusEnabled { get; set; } = true;
+
     public RpcTarget(VSMCPPackage package, JoinableTaskFactory jtf)
     {
         _package = package;
