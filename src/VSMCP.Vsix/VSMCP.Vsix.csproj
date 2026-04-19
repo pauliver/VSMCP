@@ -83,6 +83,7 @@
     <Compile Include="RpcTarget.Focus.cs" />
     <Compile Include="FocusHelper.cs" />
     <Compile Include="HostActivity.cs" />
+    <Compile Include="StatusBarReporter.cs" />
     <Compile Include="VsmcpToolWindow.cs" />
     <Compile Include="VsmcpToolWindowControl.cs" />
     <Compile Include="VsmcpCommands.cs" />
