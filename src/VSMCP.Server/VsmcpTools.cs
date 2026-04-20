@@ -407,11 +407,27 @@ public sealed partial class VsmcpTools
     }
 
     [McpServerTool(Name = "debug.stop")]
-    [Description("Terminate the debuggee and return to design mode.")]
+    [Description("Terminate the debuggee via DTE.Debugger.Stop. May show a modal confirmation dialog on VS 2022+; prefer debug.stop_command or debug.kill_and_stop if that is a problem.")]
     public async Task<DebugActionResult> DebugStop(CancellationToken ct = default)
     {
         var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         return await proxy.DebugStopAsync(ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "debug.stop_command")]
+    [Description("Stop debugging via ExecuteCommand(\"Debug.StopDebugging\") — fires the same action as the toolbar button, which VS handles asynchronously and is less likely to block on a modal dialog.")]
+    public async Task<DebugActionResult> DebugStopCommand(CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DebugStopCommandAsync(ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "debug.kill_and_stop")]
+    [Description("Kill all debugged processes via System.Diagnostics.Process.Kill, then call Stop. Eliminates any VS modal prompts caused by a live process. Use when debug.stop or debug.stop_command hangs on a dialog.")]
+    public async Task<DebugActionResult> DebugKillAndStop(CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DebugKillAndStopAsync(ct).ConfigureAwait(false);
     }
 
     [McpServerTool(Name = "debug.detach")]

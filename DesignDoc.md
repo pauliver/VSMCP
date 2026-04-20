@@ -142,7 +142,10 @@ Edits to files that are open in VS flow through `ITextBuffer` so they participat
 ### 5.3 Debug control (M4)
 - `debug.launch({projectId?, args?, env?, cwd?, noDebug?})`
 - `debug.attach({pid? | processName?, engines?: ["managed","native","script",...]})`
-- `debug.stop()`, `debug.detach()`, `debug.restart()`
+- `debug.stop()` — DTE.Debugger.Stop; may show a modal on some VS versions
+- `debug.stop_command()` — ExecuteCommand("Debug.StopDebugging"); async, less likely to block on a dialog
+- `debug.kill_and_stop()` — kill debugged processes via Process.Kill then Stop; eliminates modal prompts
+- `debug.detach()`, `debug.restart()`
 - `debug.break_all()`, `debug.continue()`
 - `debug.step_into()`, `debug.step_over()`, `debug.step_out()`
 - `debug.run_to_cursor({file, line})`
