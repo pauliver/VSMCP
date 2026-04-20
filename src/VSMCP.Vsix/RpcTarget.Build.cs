@@ -45,6 +45,7 @@ internal sealed partial class RpcTarget
             ?? throw new VsmcpException(ErrorCodes.InteropFault, "IVsSolutionBuildManager2 unavailable.");
 
         job.BuildManager = bm;
+        job.OnDone = j => MaybeFinalize(j);
         ErrorHandler.ThrowOnFailure(bm.AdviseUpdateSolutionEvents(job, out var cookie));
         job.AdviseCookie = cookie;
 

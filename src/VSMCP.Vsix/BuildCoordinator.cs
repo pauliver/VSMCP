@@ -113,6 +113,13 @@ internal sealed class BuildJob : IVsUpdateSolutionEvents2
     public uint AdviseCookie { get; set; }
     public IVsSolutionBuildManager2? BuildManager { get; set; }
 
+    /// <summary>
+    /// Invoked from <see cref="UpdateSolution_Done"/> so the owner (RpcTarget) can
+    /// collect diagnostics, unadvise, and signal <see cref="Completion"/>. Runs on
+    /// the VS UI thread because IVsUpdateSolutionEvents2 fires there.
+    /// </summary>
+    public Action<BuildJob>? OnDone { get; set; }
+
     // -------- IVsUpdateSolutionEvents2 --------
 
     public int UpdateSolution_Begin(ref int pfCancelUpdate) => 0;
@@ -124,7 +131,7 @@ internal sealed class BuildJob : IVsUpdateSolutionEvents2
                   : BuildState.Failed;
         State = final;
         EndedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        // Coordinator completes the TCS after it collects diagnostics; just record the result here.
+        try { OnDone?.Invoke(this); } catch { }
         return 0;
     }
 
