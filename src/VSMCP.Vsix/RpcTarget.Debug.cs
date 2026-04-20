@@ -106,6 +106,41 @@ internal sealed partial class RpcTarget
         return Result("Stopped.");
     }
 
+    public async Task<DebugActionResult> DebugStopCommandAsync(CancellationToken cancellationToken = default)
+    {
+        await _jtf.SwitchToMainThreadAsync(cancellationToken);
+        var dte = await RequireDteAsync();
+        try { dte.ExecuteCommand("Debug.StopDebugging"); } catch (Exception ex) { throw Interop("stop_command", ex); }
+        return Result("Stop command sent.");
+    }
+
+    public async Task<DebugActionResult> DebugKillAndStopAsync(CancellationToken cancellationToken = default)
+    {
+        await _jtf.SwitchToMainThreadAsync(cancellationToken);
+        var dte = await RequireDteAsync();
+
+        // Kill all debugged processes before calling Stop so VS has nothing to prompt about.
+        var killed = new System.Collections.Generic.List<string>();
+        try
+        {
+            foreach (EnvDTE.Process proc in dte.Debugger.DebuggedProcesses)
+            {
+                try
+                {
+                    System.Diagnostics.Process.GetProcessById(proc.ProcessID).Kill();
+                    killed.Add($"{proc.Name}({proc.ProcessID})");
+                }
+                catch { }
+            }
+        }
+        catch { }
+
+        try { dte.Debugger.Stop(WaitForDesignMode: false); } catch { }
+
+        var note = killed.Count > 0 ? $"Killed: {string.Join(", ", killed)}." : "No processes to kill.";
+        return Result("Stopped.", note);
+    }
+
     public async Task<DebugActionResult> DebugDetachAsync(CancellationToken cancellationToken = default)
     {
         await _jtf.SwitchToMainThreadAsync(cancellationToken);

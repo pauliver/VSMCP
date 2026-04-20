@@ -79,7 +79,7 @@ All tools are documented in [`DesignDoc.md §5`](./DesignDoc.md). Highlights:
 - `vs.status`, `vs.list_instances`, `vs.select`, `vs.focus` — meta / instance control
 - `solution.*`, `project.*`, `file.*`, `editor.*` — the 10% editing surface
 - `build.*` — start/cancel/wait, errors, warnings, output window
-- `debug.launch|attach|stop|continue|step_*|run_to_cursor|state` — debugger control
+- `debug.launch|attach|stop|stop_command|kill_and_stop|continue|step_*|run_to_cursor|state` — debugger control (`stop_command` and `kill_and_stop` avoid modal dialogs)
 - `bp.set|remove|list|enable|disable|set_tracepoint` — breakpoints
 - `threads.*`, `stack.*`, `frame.locals|arguments`, `eval.expression` — inspection
 - `memory.read|write`, `registers.get`, `disasm.get`, `modules.list`, `symbols.*` — native debug

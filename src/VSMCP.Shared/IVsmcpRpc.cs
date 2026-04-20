@@ -57,6 +57,8 @@ public interface IVsmcpRpc
     Task<DebugActionResult> DebugLaunchAsync(DebugLaunchOptions options, CancellationToken cancellationToken = default);
     Task<DebugActionResult> DebugAttachAsync(DebugAttachOptions options, CancellationToken cancellationToken = default);
     Task<DebugActionResult> DebugStopAsync(CancellationToken cancellationToken = default);
+    Task<DebugActionResult> DebugStopCommandAsync(CancellationToken cancellationToken = default);
+    Task<DebugActionResult> DebugKillAndStopAsync(CancellationToken cancellationToken = default);
     Task<DebugActionResult> DebugDetachAsync(CancellationToken cancellationToken = default);
     Task<DebugActionResult> DebugRestartAsync(CancellationToken cancellationToken = default);
     Task<DebugActionResult> DebugBreakAllAsync(CancellationToken cancellationToken = default);
