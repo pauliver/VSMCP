@@ -50,7 +50,7 @@ public sealed class VSMCPPackage : AsyncPackage
 
         if (await GetServiceAsync(typeof(EnvDTE.DTE)) is EnvDTE80.DTE2 dte2)
         {
-            _diagCollector = new DiagEventCollector(dte2, vsDebugger);
+            _diagCollector = new DiagEventCollector(dte2, _moduleTracker);
         }
 
         await VsmcpCommands.InitializeAsync(this);
