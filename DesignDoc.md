@@ -199,7 +199,17 @@ Edits to files that are open in VS flow through `ITextBuffer` so they participat
 - `vs.set_autofocus({enabled})` / `vs.get_autofocus()` — toggle per-connection teaching mode
 - `events.subscribe({kinds[]})` / `events.unsubscribe()` *(planned; not yet implemented)*
 
-### 5.10 Batch variants
+### 5.10 Diagnostic Tools (live session events, memory, CPU)
+
+Collected automatically during any debug session once the VSIX is loaded. No profiler attachment required.
+
+- `diag.events_list({filter?, maxResults?})` — list captured debug events (exceptions, breakpoints, user breaks). `filter`: `"all"` | `"exception"` | `"exceptionthrown"` | `"exceptionunhandled"` | `"breakpoint"` | `"userbreak"`.
+- `diag.event_detail({eventId})` — full detail: exception type/message/code, thread, top stack frames at the moment the event fired. Equivalent to double-clicking an event in the VS Diagnostic Tools window.
+- `diag.events_clear()` — reset the buffer before a repro.
+- `diag.memory_snapshot()` — process working set + private bytes at this instant. GC heap reflects VS host (devenv.exe); full managed heap snapshot by type is future work (IVsDiagnosticsHub).
+- `diag.cpu_timeline({windowMs?})` — 1-second sampled CPU% + working-set history for the debugged process, up to 5 minutes. Correlate timestamps with `diag.events_list` entries.
+
+### 5.11 Batch variants
 
 High-fanout operations have `_many` companions that run the inner op sequentially on the VSIX (VS APIs are UI-thread serialized, so parallelism offers no speedup) and return a `BatchResult<T>` with per-item success/error so a single bad input doesn't fail the whole batch:
 

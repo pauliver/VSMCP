@@ -24,6 +24,7 @@ public sealed class VSMCPPackage : AsyncPackage
     private ModuleTracker? _moduleTracker;
     private readonly HostActivity _activity = new HostActivity();
     private StatusBarReporter? _statusBar;
+    private DiagEventCollector? _diagCollector;
 
     public VSMCPPackage()
     {
@@ -32,6 +33,7 @@ public sealed class VSMCPPackage : AsyncPackage
 
     internal ModuleTracker? Modules => _moduleTracker;
     internal HostActivity Activity => _activity;
+    internal DiagEventCollector? DiagEvents => _diagCollector;
 
     protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
     {
@@ -44,6 +46,11 @@ public sealed class VSMCPPackage : AsyncPackage
         if (await GetServiceAsync(typeof(SVsStatusbar)) is IVsStatusbar bar)
         {
             _statusBar = new StatusBarReporter(_activity, bar, JoinableTaskFactory);
+        }
+
+        if (await GetServiceAsync(typeof(EnvDTE.DTE)) is EnvDTE80.DTE2 dte2)
+        {
+            _diagCollector = new DiagEventCollector(dte2);
         }
 
         await VsmcpCommands.InitializeAsync(this);
@@ -59,6 +66,8 @@ public sealed class VSMCPPackage : AsyncPackage
             _pipeHost = null;
             _moduleTracker?.Dispose();
             _moduleTracker = null;
+            _diagCollector?.Dispose();
+            _diagCollector = null;
             if (ReferenceEquals(Instance, this)) Instance = null;
         }
         base.Dispose(disposing);
