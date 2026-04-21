@@ -14,10 +14,28 @@ internal sealed partial class RpcTarget
         int maxResults,
         CancellationToken cancellationToken = default)
     {
-        await Task.Yield(); // no UI thread needed — collector is thread-safe
+        await Task.Yield();
         var collector = _package.DiagEvents
             ?? throw new VsmcpException(ErrorCodes.WrongState, "DiagEventCollector not initialised.");
         return collector.GetEvents(filter, maxResults <= 0 ? 100 : maxResults);
+    }
+
+    public async Task<DiagEventsResult> DiagEventsWatchAsync(
+        string? filter,
+        int maxResults,
+        long sinceTimestampMs,
+        int timeoutMs,
+        CancellationToken cancellationToken = default)
+    {
+        await Task.Yield();
+        var collector = _package.DiagEvents
+            ?? throw new VsmcpException(ErrorCodes.WrongState, "DiagEventCollector not initialised.");
+        return await collector.WaitForEventsAsync(
+            filter,
+            maxResults <= 0 ? 100 : maxResults,
+            sinceTimestampMs,
+            timeoutMs <= 0 ? 10_000 : timeoutMs,
+            cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<DiagEventDetail> DiagEventDetailAsync(

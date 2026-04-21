@@ -2,8 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.VisualStudio.Debugger.Interop;
-using Microsoft.VisualStudio.Shell.Interop;
 using VSMCP.Shared;
 
 namespace VSMCP.Vsix;
@@ -30,6 +30,8 @@ internal sealed class DiagEventCollector : IDisposable
     private readonly object _lock = new();
     private readonly List<DiagEventDetail> _events = new(MaxEvents + 1);
     private int _totalCollected;
+    // Pulsed whenever a new event is added so WaitForEventsAsync can wake up.
+    private readonly SemaphoreSlim _newEvent = new(0, 1);
 
     private readonly object _cpuLock = new();
     private readonly List<DiagCpuSample> _cpuSamples = new(CpuBufferSize + 1);
@@ -52,7 +54,7 @@ internal sealed class DiagEventCollector : IDisposable
 
     // -------- Public API --------
 
-    public DiagEventsResult GetEvents(string? filter, int maxResults)
+    public DiagEventsResult GetEvents(string? filter, int maxResults, long sinceTimestampMs = 0)
     {
         var predicate = BuildPredicate(filter);
         lock (_lock)
@@ -62,6 +64,7 @@ internal sealed class DiagEventCollector : IDisposable
             for (int i = _events.Count - 1; i >= 0 && result.Events.Count < cap; i--)
             {
                 var e = _events[i];
+                if (e.TimestampMs <= sinceTimestampMs) break; // events are insertion-ordered; everything earlier is older
                 if (predicate(e.Kind))
                 {
                     result.Events.Add(new DiagEvent
@@ -74,7 +77,33 @@ internal sealed class DiagEventCollector : IDisposable
                 }
             }
             result.Events.Reverse(); // oldest first
+            result.LatestTimestampMs = result.Events.Count > 0
+                ? result.Events[result.Events.Count - 1].TimestampMs
+                : sinceTimestampMs;
             return result;
+        }
+    }
+
+    /// <summary>
+    /// Long-polls for events newer than <paramref name="sinceTimestampMs"/>, returning as soon as any
+    /// arrive or <paramref name="timeoutMs"/> elapses.
+    /// </summary>
+    public async Task<DiagEventsResult> WaitForEventsAsync(
+        string? filter, int maxResults, long sinceTimestampMs, int timeoutMs, CancellationToken cancellationToken)
+    {
+        timeoutMs = Math.Max(100, Math.Min(timeoutMs, 30_000));
+        var deadline = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + timeoutMs;
+
+        while (true)
+        {
+            var result = GetEvents(filter, maxResults, sinceTimestampMs);
+            if (result.Events.Count > 0) return result;
+
+            var remaining = (int)(deadline - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            if (remaining <= 0) return result;
+
+            // Wait for a signal (pulsed in AddEvent) or timeout, whichever comes first.
+            await _newEvent.WaitAsync(Math.Min(remaining, 1000), cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -258,6 +287,8 @@ internal sealed class DiagEventCollector : IDisposable
             if (_events.Count > MaxEvents)
                 _events.RemoveAt(0);
         }
+        if (_newEvent.CurrentCount == 0)
+            try { _newEvent.Release(); } catch { }
     }
 
     // -------- Frame capture --------
@@ -404,6 +435,7 @@ internal sealed class DiagEventCollector : IDisposable
     {
         _cpuTimer?.Dispose();
         _cpuTimer = null;
+        _newEvent.Dispose();
 
         try
         {

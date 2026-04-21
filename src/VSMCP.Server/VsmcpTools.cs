@@ -988,6 +988,19 @@ public sealed partial class VsmcpTools
         return await proxy.DiagEventsListAsync(filter, maxResults, ct).ConfigureAwait(false);
     }
 
+    [McpServerTool(Name = "diag.events_watch")]
+    [Description("Long-poll for new debug events. Blocks until at least one event newer than sinceTimestampMs arrives, or timeoutMs elapses (max 30 s). On return, use LatestTimestampMs as sinceTimestampMs on the next call to receive only subsequent events. Ideal for tight watch loops: call repeatedly to stream events without polling diag.events_list at fixed intervals.")]
+    public async Task<DiagEventsResult> DiagEventsWatch(
+        [Description("Receive only events with TimestampMs > this value. Pass 0 on the first call; pass the LatestTimestampMs from the previous result on subsequent calls.")] long sinceTimestampMs = 0,
+        [Description("Event kind filter (same values as diag.events_list).")] string? filter = null,
+        [Description("Max events to return per call (1..200, default 50).")] int maxResults = 50,
+        [Description("How long to wait for new events in ms (100..30000, default 10000).")] int timeoutMs = 10_000,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DiagEventsWatchAsync(filter, maxResults, sinceTimestampMs, timeoutMs, ct).ConfigureAwait(false);
+    }
+
     [McpServerTool(Name = "diag.event_detail")]
     [Description("Return full detail for a single event by id (from diag.events_list): exception type, message, exception code, thread id/name, and the top stack frames captured at the moment the event fired. Equivalent to double-clicking an event in the VS Diagnostic Tools window.")]
     public async Task<DiagEventDetail> DiagEventDetail(

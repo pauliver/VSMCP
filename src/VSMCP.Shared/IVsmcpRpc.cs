@@ -110,6 +110,7 @@ public interface IVsmcpRpc
 
     // -------- Diagnostic Tools (events, memory, CPU) --------
     Task<DiagEventsResult> DiagEventsListAsync(string? filter, int maxResults, CancellationToken cancellationToken = default);
+    Task<DiagEventsResult> DiagEventsWatchAsync(string? filter, int maxResults, long sinceTimestampMs, int timeoutMs, CancellationToken cancellationToken = default);
     Task<DiagEventDetail> DiagEventDetailAsync(string eventId, CancellationToken cancellationToken = default);
     Task DiagEventsClearAsync(CancellationToken cancellationToken = default);
     Task<DiagMemorySnapshot> DiagMemorySnapshotAsync(CancellationToken cancellationToken = default);

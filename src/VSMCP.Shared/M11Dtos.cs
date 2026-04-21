@@ -38,6 +38,8 @@ public sealed class DiagEventsResult
     public List<DiagEvent> Events { get; set; } = new();
     /// <summary>Total events collected this session (may exceed Events.Count if the buffer was trimmed).</summary>
     public int TotalCollected { get; set; }
+    /// <summary>TimestampMs of the newest event in this result. Pass as sinceTimestampMs on the next call to receive only newer events.</summary>
+    public long LatestTimestampMs { get; set; }
 }
 
 public sealed class DiagMemorySnapshot
