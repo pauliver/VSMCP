@@ -2,28 +2,41 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
+using Microsoft.VisualStudio;
+using Microsoft.VisualStudio.Debugger.Interop;
+using Microsoft.VisualStudio.Shell.Interop;
 using VSMCP.Shared;
 
 namespace VSMCP.Vsix;
 
 /// <summary>
-/// Hooks DTE debugger events for the lifetime of a VS debug session and collects
-/// them into a capped ring buffer. Must be constructed on the VS UI thread (COM
-/// event subscriptions require it).
+/// Hooks DTE debugger events and IDebugEventCallback2 for the lifetime of the VS
+/// instance. Collects exceptions, breakpoints, and user breaks into a ring buffer;
+/// runs a 1-second CPU/RSS sampler for the debugged process.
 ///
-/// The ring buffer survives across multiple debug sessions in the same VS instance
-/// so the AI can query events after the session ends.
+/// Must be constructed on the VS UI thread (DTE COM event subscriptions require it).
+/// IDebugEventCallback2 may fire on any thread — all shared state is lock-guarded.
 /// </summary>
-internal sealed class DiagEventCollector : IDisposable
+internal sealed class DiagEventCollector : IDebugEventCallback2, IDisposable
 {
     private const int MaxEvents = 200;
     private const int MaxFrames = 20;
     private const int CpuBufferSize = 300;      // 5 min at 1s intervals
     private const int CpuSampleIntervalMs = 1000;
 
-    // Must be a field — if a local, COM GC's the event sink silently.
+    private static readonly Guid s_exceptionEvent   = typeof(IDebugExceptionEvent2).GUID;
+    private static readonly Guid s_breakpointEvent  = typeof(IDebugBreakpointEvent2).GUID;
+    private static readonly Guid s_breakEvent       = typeof(IDebugBreakEvent2).GUID;
+    private static readonly Guid s_programDestroy   = typeof(IDebugProgramDestroyEvent2).GUID;
+
+    // Must be a field — if a local, COM GC's the DTE event sink silently.
     private readonly EnvDTE.DebuggerEvents _dteEvents;
     private readonly EnvDTE80.DTE2 _dte;
+    private readonly IVsDebugger? _vsDebugger;
+    private bool _advised;
+
+    // Updated from IDebugEventCallback2.Event (may be any thread).
+    private IDebugThread2? _currentThread;
 
     private readonly object _lock = new();
     private readonly List<DiagEventDetail> _events = new(MaxEvents + 1);
@@ -32,17 +45,49 @@ internal sealed class DiagEventCollector : IDisposable
     private readonly object _cpuLock = new();
     private readonly List<DiagCpuSample> _cpuSamples = new(CpuBufferSize + 1);
     private Timer? _cpuTimer;
+    private int _lastDebuggingPid;
 
-    public DiagEventCollector(EnvDTE80.DTE2 dte)
+    public DiagEventCollector(EnvDTE80.DTE2 dte, IVsDebugger? vsDebugger)
     {
         _dte = dte;
+        _vsDebugger = vsDebugger;
+
         _dteEvents = dte.Events.DebuggerEvents;
         _dteEvents.OnExceptionThrown += OnExceptionThrown;
         _dteEvents.OnExceptionNotHandled += OnExceptionNotHandled;
         _dteEvents.OnEnterBreakMode += OnEnterBreakMode;
         _dteEvents.OnEnterRunMode += OnEnterRunMode;
 
+        if (_vsDebugger is not null)
+        {
+            try { _vsDebugger.AdviseDebugEventCallback(this); _advised = true; } catch { }
+        }
+
         _cpuTimer = new Timer(SampleCpu, null, CpuSampleIntervalMs, CpuSampleIntervalMs);
+    }
+
+    // -------- IDebugEventCallback2 --------
+
+    int IDebugEventCallback2.Event(
+        IDebugEngine2 pEngine, IDebugProcess2 pProcess, IDebugProgram2 pProgram,
+        IDebugThread2 pThread, IDebugEvent2 pEvent, ref Guid riidEvent, uint dwAttrib)
+    {
+        try
+        {
+            if (riidEvent == s_programDestroy)
+            {
+                Volatile.Write(ref _currentThread, null);
+            }
+            else if (pThread is not null &&
+                (riidEvent == s_exceptionEvent ||
+                 riidEvent == s_breakpointEvent ||
+                 riidEvent == s_breakEvent))
+            {
+                Volatile.Write(ref _currentThread, pThread);
+            }
+        }
+        catch { }
+        return VSConstants.S_OK;
     }
 
     // -------- Public API --------
@@ -109,10 +154,10 @@ internal sealed class DiagEventCollector : IDisposable
             string? name = null;
             try
             {
-                var proc = _dte.Debugger?.DebuggedProcesses;
-                if (proc is { Count: > 0 })
+                var procs = _dte.Debugger?.DebuggedProcesses;
+                if (procs is { Count: > 0 })
                 {
-                    var first = proc.Item(1) as EnvDTE.Process;
+                    var first = procs.Item(1) as EnvDTE.Process;
                     pid = first?.ProcessID ?? 0;
                     name = first?.Name;
                 }
@@ -139,9 +184,7 @@ internal sealed class DiagEventCollector : IDisposable
             Id = NewId(),
             Kind = DiagEventKind.ExceptionThrown,
             TimestampMs = Now(),
-            Summary = string.IsNullOrEmpty(description)
-                ? exceptionType
-                : $"{exceptionType}: {description}",
+            Summary = string.IsNullOrEmpty(description) ? exceptionType : $"{exceptionType}: {description}",
             ExceptionType = exceptionType,
             ExceptionMessage = description,
             ExceptionCode = code,
@@ -173,7 +216,7 @@ internal sealed class DiagEventCollector : IDisposable
 
     private void OnEnterBreakMode(EnvDTE.dbgEventReason reason, ref EnvDTE.dbgExecutionAction executionAction)
     {
-        // Exceptions are captured by the dedicated handlers above; skip them here.
+        // Exceptions handled by the dedicated handlers above.
         if (reason == EnvDTE.dbgEventReason.dbgEventReasonExceptionThrown ||
             reason == EnvDTE.dbgEventReason.dbgEventReasonExceptionNotHandled)
             return;
@@ -209,38 +252,23 @@ internal sealed class DiagEventCollector : IDisposable
 
     private void SampleCpu(object? _)
     {
-        int pid = 0;
-        try
-        {
-            // Read pid from the current debugged process without touching DTE
-            // (DTE requires UI thread; Process does not).
-            // We store it when the debug session starts via OnEnterRunMode.
-            // Fallback: iterate DebuggedProcesses is UI-thread-only so we skip here.
-        }
-        catch { }
-
-        // Sample the most recently seen debugged PID, or skip if none.
-        // We rely on a pid captured at run-mode entry rather than calling DTE here.
         var targetPid = Volatile.Read(ref _lastDebuggingPid);
         if (targetPid <= 0) return;
 
         try
         {
-            var sw = Stopwatch.StartNew();
             using var proc = Process.GetProcessById(targetPid);
             var t1 = proc.TotalProcessorTime;
             var ts1 = DateTime.UtcNow;
 
-            Thread.Sleep(100); // short sample window
+            Thread.Sleep(100);
 
             proc.Refresh();
             var t2 = proc.TotalProcessorTime;
             var ts2 = DateTime.UtcNow;
 
             var elapsed = (ts2 - ts1).TotalMilliseconds;
-            var cpu = elapsed > 0
-                ? (t2 - t1).TotalMilliseconds / elapsed * 100.0
-                : 0.0;
+            var cpu = elapsed > 0 ? (t2 - t1).TotalMilliseconds / elapsed * 100.0 : 0.0;
 
             var sample = new DiagCpuSample
             {
@@ -259,12 +287,7 @@ internal sealed class DiagEventCollector : IDisposable
         catch { }
     }
 
-    private int _lastDebuggingPid;
-
-    // Called from DTE OnEnterRunMode (UI thread) to record the PID so the timer can use it.
     internal void SetDebuggingPid(int pid) => Volatile.Write(ref _lastDebuggingPid, pid);
-
-    // -------- Helpers --------
 
     private void AddEvent(DiagEventDetail detail)
     {
@@ -277,7 +300,89 @@ internal sealed class DiagEventCollector : IDisposable
         }
     }
 
+    // -------- Frame capture --------
+
     private List<StackFrameInfo> TryCapture()
+    {
+        // Prefer native IDebugThread2 path (has file + line); fall back to DTE (has none).
+        var nativeThread = Volatile.Read(ref _currentThread);
+        if (nativeThread is not null)
+        {
+            var frames = TryCaptureNative(nativeThread);
+            if (frames.Count > 0) return frames;
+        }
+        return TryCaptureDte();
+    }
+
+    private List<StackFrameInfo> TryCaptureNative(IDebugThread2 thread)
+    {
+        var result = new List<StackFrameInfo>();
+        try
+        {
+            int tid = 0;
+            try
+            {
+                thread.GetThreadId(out var nativeTid);
+                tid = (int)nativeTid;
+            }
+            catch { }
+
+            var flags = enum_FRAMEINFO_FLAGS.FIF_FUNCNAME
+                      | enum_FRAMEINFO_FLAGS.FIF_MODULE
+                      | enum_FRAMEINFO_FLAGS.FIF_LANGUAGE
+                      | enum_FRAMEINFO_FLAGS.FIF_FRAME;
+
+            if (thread.EnumFrameInfo(flags, 10, out var frameEnum) != VSConstants.S_OK || frameEnum is null)
+                return result;
+
+            var buf = new FRAMEINFO[1];
+            uint fetched = 0;
+            int i = 0;
+            while (frameEnum.Next(1, buf, ref fetched) == VSConstants.S_OK && fetched == 1)
+            {
+                var fi = buf[0];
+                string? file = null;
+                int? line = null;
+
+                if (fi.m_pFrame is not null)
+                {
+                    try
+                    {
+                        if (fi.m_pFrame.GetDocumentContext(out var docCtx) == VSConstants.S_OK && docCtx is not null)
+                        {
+                            var begin = new TEXT_POSITION[1];
+                            var end = new TEXT_POSITION[1];
+                            if (docCtx.GetStatementRange(begin, end) == VSConstants.S_OK)
+                                line = (int)(begin[0].dwLine + 1); // 0-based → 1-based
+
+                            if (docCtx.GetDocument(out var doc) == VSConstants.S_OK && doc is not null)
+                            {
+                                doc.GetName(enum_GETNAME_TYPE.GN_FILENAME, out file);
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                result.Add(new StackFrameInfo
+                {
+                    Index = i++,
+                    ThreadId = tid,
+                    FunctionName = fi.m_bstrFuncName ?? "",
+                    Module = string.IsNullOrEmpty(fi.m_bstrModule) ? null : fi.m_bstrModule,
+                    Language = string.IsNullOrEmpty(fi.m_bstrLanguage) ? null : fi.m_bstrLanguage,
+                    File = file,
+                    Line = line,
+                });
+
+                if (i >= MaxFrames) break;
+            }
+        }
+        catch { }
+        return result;
+    }
+
+    private List<StackFrameInfo> TryCaptureDte()
     {
         var result = new List<StackFrameInfo>();
         try
@@ -321,7 +426,6 @@ internal sealed class DiagEventCollector : IDisposable
         if (string.IsNullOrWhiteSpace(filter) || filter.Equals("all", StringComparison.OrdinalIgnoreCase))
             return _ => true;
 
-        // "exception" matches both thrown and unhandled
         if (filter.Equals("exception", StringComparison.OrdinalIgnoreCase))
             return k => k == DiagEventKind.ExceptionThrown || k == DiagEventKind.ExceptionUnhandled;
 
@@ -340,6 +444,11 @@ internal sealed class DiagEventCollector : IDisposable
     {
         _cpuTimer?.Dispose();
         _cpuTimer = null;
+
+        if (_advised && _vsDebugger is not null)
+        {
+            try { _vsDebugger.UnadviseDebugEventCallback(this); } catch { }
+        }
 
         try
         {
