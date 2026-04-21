@@ -194,7 +194,16 @@ internal sealed class DiagEventCollector : IDisposable
         });
     }
 
-    private void OnEnterRunMode(EnvDTE.dbgEventReason reason) { }
+    private void OnEnterRunMode(EnvDTE.dbgEventReason reason)
+    {
+        try
+        {
+            var procs = _dte.Debugger?.DebuggedProcesses;
+            if (procs is { Count: > 0 })
+                SetDebuggingPid((procs.Item(1) as EnvDTE.Process)?.ProcessID ?? 0);
+        }
+        catch { }
+    }
 
     // -------- CPU sampling (timer thread) --------
 
