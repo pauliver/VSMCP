@@ -90,6 +90,8 @@
     <Compile Include="ModuleTracker.cs" />
     <Compile Include="BuildCoordinator.cs" />
     <Compile Include="VsHelpers.cs" />
+    <Compile Include="DiagEventCollector.cs" />
+    <Compile Include="RpcTarget.DiagEvents.cs" />
   </ItemGroup>
 
   <ItemGroup>

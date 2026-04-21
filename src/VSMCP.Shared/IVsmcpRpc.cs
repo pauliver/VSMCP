@@ -108,6 +108,13 @@ public interface IVsmcpRpc
     Task<ProcessListResult> ProcessesListAsync(ProcessListFilter? filter, CancellationToken cancellationToken = default);
     Task<CountersSnapshot> CountersGetAsync(int pid, int sampleMs, CancellationToken cancellationToken = default);
 
+    // -------- Diagnostic Tools (events, memory, CPU) --------
+    Task<DiagEventsResult> DiagEventsListAsync(string? filter, int maxResults, CancellationToken cancellationToken = default);
+    Task<DiagEventDetail> DiagEventDetailAsync(string eventId, CancellationToken cancellationToken = default);
+    Task DiagEventsClearAsync(CancellationToken cancellationToken = default);
+    Task<DiagMemorySnapshot> DiagMemorySnapshotAsync(CancellationToken cancellationToken = default);
+    Task<DiagCpuTimelineResult> DiagCpuTimelineAsync(int? windowMs, CancellationToken cancellationToken = default);
+
     // -------- Code intelligence (Roslyn) --------
     Task<SymbolsResult> CodeSymbolsAsync(string file, CancellationToken cancellationToken = default);
     Task<LocationListResult> CodeGotoDefinitionAsync(CodePosition position, CancellationToken cancellationToken = default);

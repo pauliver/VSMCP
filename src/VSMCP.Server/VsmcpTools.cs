@@ -974,4 +974,53 @@ public sealed partial class VsmcpTools
     {
         return Task.FromResult(_trace.Report(path, top));
     }
+
+    // -------- Diagnostic Tools (M11) --------
+
+    [McpServerTool(Name = "diag.events_list")]
+    [Description("List debug-session events captured by the VSIX during this VS session: exceptions (thrown / unhandled), breakpoint hits, and user breaks. Newest events appear last. Returns up to maxResults items. filter values: 'all' (default), 'exception' (both thrown and unhandled), 'exceptionthrown', 'exceptionunhandled', 'breakpoint', 'userbreak'.")]
+    public async Task<DiagEventsResult> DiagEventsList(
+        [Description("Event kind filter. 'exception' matches both thrown and unhandled. Omit for all.")] string? filter = null,
+        [Description("Max events to return (1..200, default 100).")] int maxResults = 100,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DiagEventsListAsync(filter, maxResults, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "diag.event_detail")]
+    [Description("Return full detail for a single event by id (from diag.events_list): exception type, message, exception code, thread id/name, and the top stack frames captured at the moment the event fired. Equivalent to double-clicking an event in the VS Diagnostic Tools window.")]
+    public async Task<DiagEventDetail> DiagEventDetail(
+        [Description("Event id from diag.events_list.")] string eventId,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DiagEventDetailAsync(eventId, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "diag.events_clear")]
+    [Description("Clear the in-memory event buffer. Useful before starting a repro so the list only contains events from this run.")]
+    public async Task DiagEventsClear(CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        await proxy.DiagEventsClearAsync(ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "diag.memory_snapshot")]
+    [Description("Snapshot the debugged process's memory at this instant: working set, private bytes. Also reports the managed GC heap size of the VS host process (devenv.exe) as a cross-check. Full managed heap snapshot (by type) requires IVsDiagnosticsHub and is not yet implemented.")]
+    public async Task<DiagMemorySnapshot> DiagMemorySnapshot(CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DiagMemorySnapshotAsync(ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "diag.cpu_timeline")]
+    [Description("Return CPU% and working-set samples collected by the background 1-second sampler for the debugged process. windowMs limits how far back to look (omit for all available history, up to 5 minutes). Use diag.events_list for event correlation; use counters.get for an on-demand one-shot sample.")]
+    public async Task<DiagCpuTimelineResult> DiagCpuTimeline(
+        [Description("Restrict samples to the last N milliseconds. Omit for all history.")] int? windowMs = null,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DiagCpuTimelineAsync(windowMs, ct).ConfigureAwait(false);
+    }
 }
