@@ -10,7 +10,7 @@ VSMCP is a [Model Context Protocol](https://modelcontextprotocol.io) server that
 
 ## Why
 
-LLMs write code well. They *don't* debug well, because most of the hard tooling — the debugger, the profiler, the dump analyzer — lives behind GUIs. VSMCP exposes that tooling as MCP tools so an AI can:
+LLMs write code well. They *don't* debug well, and while there are command line versions of many debugging tools, those are hard to follow along. VSMCP exposes the visual tools — the debugger, the profiler, the dump analyzer — that live behind GUIs in VS. VSMCP exposes that tooling as MCP tools so an AI can:
 
 - Reproduce a reported bug by building, launching, and attaching to a target.
 - Set a conditional breakpoint and inspect locals at the moment a bad value appears.
