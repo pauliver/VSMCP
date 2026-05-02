@@ -122,4 +122,74 @@ public interface IVsmcpRpc
     Task<ReferencesResult> CodeFindReferencesAsync(CodePosition position, int maxResults, CancellationToken cancellationToken = default);
     Task<DiagnosticsResult> CodeDiagnosticsAsync(string? file, int maxResults, CancellationToken cancellationToken = default);
     Task<QuickInfoResult> CodeQuickInfoAsync(CodePosition position, CancellationToken cancellationToken = default);
+
+    // -------- M12: File & Symbol Discovery --------
+    Task<FileListResult> FileListAsync(string? projectId, string? folder, string? pattern,
+        IReadOnlyList<string>? kinds, int maxResults, CancellationToken cancellationToken = default);
+    Task<SymbolsResult> FileClassesAsync(string? projectId, string? @namespace, IReadOnlyList<string>? kinds,
+        int maxResults, CancellationToken cancellationToken = default);
+    Task<MembersResult> FileMembersAsync(string file, string className, IReadOnlyList<string>? kinds, bool excludeInherited,
+        CancellationToken cancellationToken = default);
+    Task<InheritanceResult> FileInheritanceAsync(string file, string className, CancellationToken cancellationToken = default);
+    Task<FileListResult> FileGlobAsync(IReadOnlyList<string> patterns, string? projectId, CancellationToken cancellationToken = default);
+    Task<DependencyListResult> FileDependenciesAsync(string file, CancellationToken cancellationToken = default);
+
+    // -------- M13: Search Operations --------
+    Task<TextSearchResult> SearchTextAsync(string pattern, string? filePattern, string? projectId,
+        IReadOnlyList<string>? kinds, int maxResults, CancellationToken cancellationToken = default);
+    Task<SymbolSearchResultContainer> SearchSymbolAsync(string namePattern, IReadOnlyList<string>? kinds,
+        string? container, int maxResults, CancellationToken cancellationToken = default);
+    Task<ClassSearchResultContainer> SearchClassesAsync(string? namePattern, string? baseType, string? @interface,
+        int maxResults, CancellationToken cancellationToken = default);
+    Task<MemberSearchResultContainer> SearchMembersAsync(string namePattern, IReadOnlyList<string>? kinds,
+        string? container, CancellationToken cancellationToken = default);
+    Task<UsageResult> SearchFindUsagesAsync(string file, CodePosition position, CancellationToken cancellationToken = default);
+
+    // -------- M14: Bulk Operations --------
+    Task<BatchResult<FileReadResultItem>> FileReadManyAsync(IReadOnlyList<FileReadRequest> requests,
+        CancellationToken cancellationToken = default);
+    Task<BatchResult<FileWriteResultItem>> FileWriteManyAsync(IReadOnlyList<FileWriteEntry> entries,
+        bool openInEditor, CancellationToken cancellationToken = default);
+    Task<ReplaceManyResult> SearchReplaceManyAsync(string pattern, string replacement, string? filePattern,
+        int maxFiles, bool dryRun, CancellationToken cancellationToken = default);
+    Task<BatchResult<CodeBatchResult>> CodeSymbolsManyAsync(IReadOnlyList<string> files,
+        CancellationToken cancellationToken = default);
+    Task<BatchResult<ReferencesResult>> CodeFindReferencesManyAsync(IReadOnlyList<CodePosition> positions,
+        int maxResults, CancellationToken cancellationToken = default);
+
+    // -------- M15: Refactoring & Editing --------
+    Task<(int Replacements, string Text)> EditReplaceAllAsync(string file, string pattern, string replacement,
+        int? maxReplacements, bool regex, CancellationToken cancellationToken = default);
+    Task<RenameResult> EditRenameAsync(string file, CodePosition position, string newName, bool dryRun,
+        CancellationToken cancellationToken = default);
+    Task<OrganizeUsingsResult> EditOrganizeUsingsAsync(string file, bool addMissing, bool removeUnused,
+        CancellationToken cancellationToken = default);
+    Task<InsertResult> EditInsertBeforeAsync(string file, int line, string text, bool openInEditor,
+        CancellationToken cancellationToken = default);
+    Task<InsertResult> EditInsertAfterAsync(string file, int line, string text, bool openInEditor,
+        CancellationToken cancellationToken = default);
+    Task<ReplaceMemberResult> EditReplaceMemberAsync(string file, string className, string memberName, string newText,
+        bool openInEditor, CancellationToken cancellationToken = default);
+    Task<MoveTypeResult> EditMoveTypeAsync(string file, string typeName, string? newNamespace, string? newFile,
+        CancellationToken cancellationToken = default);
+
+    // -------- M16: Navigation Context --------
+    Task<NavigateResult> EditorNavigateToAsync(string file, int? line, int? column, bool openInEditor,
+        CancellationToken cancellationToken = default);
+    Task<SnippetResult> EditorSnippetAsync(string file, int line, int contextBefore, int contextAfter,
+        CancellationToken cancellationToken = default);
+    Task<RegionResult> EditorExpandRegionAsync(string file, int line, CancellationToken cancellationToken = default);
+    Task<RegionResult> EditorCollapseRegionAsync(string file, int line, CancellationToken cancellationToken = default);
+    Task<IncludeNavigationResult> EditorNavigateToIncludeAsync(string file, string includeName,
+        CancellationToken cancellationToken = default);
+
+    // -------- C++ Extensions --------
+    Task<HeaderLookupResult> CppHeaderLookupAsync(string file, string symbolName,
+        CancellationToken cancellationToken = default);
+    Task<IncludeChainResult> CppIncludeChainAsync(string file, CancellationToken cancellationToken = default);
+    Task<MacroResult> CppMacroLookupAsync(string name, CancellationToken cancellationToken = default);
+    Task<PreprocessResult> CppPreprocessAsync(string file, IReadOnlyList<string>? defines,
+        CancellationToken cancellationToken = default);
+    Task<ApiReferenceResult> CppApiRefAsync(string apiName, CancellationToken cancellationToken = default);
+    Task<GeneratedFileInfo> CppGeneratedFileAsync(string file, string type, CancellationToken cancellationToken = default);
 }
