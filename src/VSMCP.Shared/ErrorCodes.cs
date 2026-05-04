@@ -11,4 +11,10 @@ public static class ErrorCodes
     public const string InteropFault = "VSMCP-interop-fault";
     public const string Unsupported = "VSMCP-unsupported";
     public const string UpgradeRequired = "VSMCP-upgrade-required";
+
+    // M18+M19 additions
+    public const string SymbolAmbiguous = "VSMCP-symbol-ambiguous";
+    public const string ContentHashMismatch = "VSMCP-content-hash-mismatch";
+    public const string WorkspaceLocked = "VSMCP-workspace-locked";
+    public const string RoslynUnavailable = "VSMCP-roslyn-unavailable";
 }

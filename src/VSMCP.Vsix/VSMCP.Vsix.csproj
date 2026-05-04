@@ -107,6 +107,7 @@
     <Compile Include="RpcTarget.WorkspaceEvents.cs" />
     <Compile Include="RpcTarget.Tests.cs" />
     <Compile Include="RpcTarget.NuGet.cs" />
+    <Compile Include="RpcTarget.CodeGen.cs" />
   </ItemGroup>
 
   <ItemGroup>
