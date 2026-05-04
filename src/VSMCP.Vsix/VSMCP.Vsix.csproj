@@ -108,6 +108,7 @@
     <Compile Include="RpcTarget.Tests.cs" />
     <Compile Include="RpcTarget.NuGet.cs" />
     <Compile Include="RpcTarget.CodeGen.cs" />
+    <Compile Include="RpcTarget.Enc.cs" />
   </ItemGroup>
 
   <ItemGroup>

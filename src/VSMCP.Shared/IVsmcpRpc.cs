@@ -227,6 +227,11 @@ public interface IVsmcpRpc
     Task<NuGetActionResult> NugetAddAsync(string projectId, string packageId, string? version, CancellationToken cancellationToken = default);
     Task<NuGetActionResult> NugetRemoveAsync(string projectId, string packageId, CancellationToken cancellationToken = default);
 
+    // -------- Edit & Continue --------
+    Task<EncStatusResult> DebugEncStatusAsync(CancellationToken cancellationToken = default);
+    Task<EncApplyResult> DebugApplyCodeChangesAsync(CancellationToken cancellationToken = default);
+    Task<EncApplyResult> DebugHotReloadAsync(CancellationToken cancellationToken = default);
+
     // -------- Code generation --------
     Task<AddMemberResult> CodeImplementInterfaceAsync(string file, string className, string interfaceName, CancellationToken cancellationToken = default);
     Task<AddMemberResult> CodeOverrideMemberAsync(string file, string className, string memberName, CancellationToken cancellationToken = default);
