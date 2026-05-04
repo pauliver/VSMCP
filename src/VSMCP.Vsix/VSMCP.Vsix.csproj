@@ -99,6 +99,14 @@
     <Compile Include="RpcTarget.Navigation.cs" />
     <Compile Include="RpcTarget.Cpp.cs" />
     <Compile Include="RoslynEditor.cs" />
+    <Compile Include="RpcTarget.Semantic.cs" />
+    <Compile Include="RpcTarget.UsingManagement.cs" />
+    <Compile Include="RpcTarget.Scaffolding.cs" />
+    <Compile Include="RpcTarget.ActiveEditor.cs" />
+    <Compile Include="WorkspaceWatcher.cs" />
+    <Compile Include="RpcTarget.WorkspaceEvents.cs" />
+    <Compile Include="RpcTarget.Tests.cs" />
+    <Compile Include="RpcTarget.NuGet.cs" />
   </ItemGroup>
 
   <ItemGroup>

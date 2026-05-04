@@ -25,6 +25,7 @@ public sealed class VSMCPPackage : AsyncPackage
     private readonly HostActivity _activity = new HostActivity();
     private StatusBarReporter? _statusBar;
     private DiagEventCollector? _diagCollector;
+    private WorkspaceWatcher? _workspaceWatcher;
 
     public VSMCPPackage()
     {
@@ -34,6 +35,7 @@ public sealed class VSMCPPackage : AsyncPackage
     internal ModuleTracker? Modules => _moduleTracker;
     internal HostActivity Activity => _activity;
     internal DiagEventCollector? DiagEvents => _diagCollector;
+    internal WorkspaceWatcher? WorkspaceEvents => _workspaceWatcher;
 
     protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
     {
@@ -51,6 +53,7 @@ public sealed class VSMCPPackage : AsyncPackage
         if (await GetServiceAsync(typeof(EnvDTE.DTE)) is EnvDTE80.DTE2 dte2)
         {
             _diagCollector = new DiagEventCollector(dte2, _moduleTracker);
+            _workspaceWatcher = new WorkspaceWatcher(dte2);
         }
 
         await VsmcpCommands.InitializeAsync(this);
@@ -68,6 +71,8 @@ public sealed class VSMCPPackage : AsyncPackage
             _moduleTracker = null;
             _diagCollector?.Dispose();
             _diagCollector = null;
+            _workspaceWatcher?.Dispose();
+            _workspaceWatcher = null;
             if (ReferenceEquals(Instance, this)) Instance = null;
         }
         base.Dispose(disposing);

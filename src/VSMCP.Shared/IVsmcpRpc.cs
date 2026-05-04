@@ -183,6 +183,21 @@ public interface IVsmcpRpc
     Task<IncludeNavigationResult> EditorNavigateToIncludeAsync(string file, string includeName,
         CancellationToken cancellationToken = default);
 
+    // -------- M18: Semantic Code Layer --------
+    Task<SymbolMatchResult> CodeFindSymbolAsync(string name, string? kind, int maxResults, CancellationToken cancellationToken = default);
+    Task<ReadMemberResult> CodeReadMemberAsync(string? file, string className, string memberName, CancellationToken cancellationToken = default);
+    Task<AddMemberResult> EditAddMemberAsync(string? file, string className, string memberCode, string? insertBefore, bool openInEditor, CancellationToken cancellationToken = default);
+    Task<AddUsingResult> EditAddUsingAsync(string file, string namespaceName, CancellationToken cancellationToken = default);
+    Task<RemoveUsingResult> EditRemoveUsingAsync(string file, string namespaceName, CancellationToken cancellationToken = default);
+    Task<UsingSuggestionsResult> CodeSuggestUsingsAsync(string file, IReadOnlyList<string>? symbolNames, CancellationToken cancellationToken = default);
+    Task<AddIncludeResult> EditAddIncludeAsync(string file, string headerPath, bool isSystem, CancellationToken cancellationToken = default);
+    Task<NamespaceInfo> ProjectNamespaceForPathAsync(string projectId, string relativePath, CancellationToken cancellationToken = default);
+    Task<ScaffoldResult> CodeScaffoldFileAsync(string projectId, string relativePath, string? content, string? language, CancellationToken cancellationToken = default);
+    Task<CreateClassResult> CodeCreateClassAsync(string name, string? baseClass, IReadOnlyList<string>? interfaces, string? projectId, string? folder, bool generateStubs, CancellationToken cancellationToken = default);
+    Task<CppCreateClassResult> CppCreateClassAsync(string name, string? baseClass, string? headerFolder, string? sourceFolder, string? projectId, bool generateVirtualStubs, CancellationToken cancellationToken = default);
+    Task<NavigateResult> EditorOpenAtSymbolAsync(string symbolPath, string? kind, CancellationToken cancellationToken = default);
+    Task<BreakpointInfo> BreakpointSetOnEntryAsync(string className, string methodName, string? condition, CancellationToken cancellationToken = default);
+
     // -------- C++ Extensions --------
     Task<HeaderLookupResult> CppHeaderLookupAsync(string file, string symbolName,
         CancellationToken cancellationToken = default);
@@ -192,4 +207,23 @@ public interface IVsmcpRpc
         CancellationToken cancellationToken = default);
     Task<ApiReferenceResult> CppApiRefAsync(string apiName, CancellationToken cancellationToken = default);
     Task<GeneratedFileInfo> CppGeneratedFileAsync(string file, string type, CancellationToken cancellationToken = default);
+
+    // -------- Active editor surface --------
+    Task<ActiveEditorInfo> EditorActiveAsync(CancellationToken cancellationToken = default);
+    Task<EditorSelection?> EditorSelectionAsync(CancellationToken cancellationToken = default);
+    Task<CodePosition?> EditorCursorAsync(CancellationToken cancellationToken = default);
+    Task<FileWriteResult> EditorInsertAtCursorAsync(string text, CancellationToken cancellationToken = default);
+
+    // -------- Workspace event stream --------
+    Task<WorkspaceEventsResult> WorkspaceEventsListAsync(int maxResults, CancellationToken cancellationToken = default);
+    Task<WorkspaceEventsResult> WorkspaceWatchAsync(long sinceTimestampMs, int timeoutMs, int maxResults, CancellationToken cancellationToken = default);
+
+    // -------- Tests --------
+    Task<TestDiscoveryResult> TestDiscoverAsync(string? projectId, CancellationToken cancellationToken = default);
+    Task<TestRunResult> TestRunAsync(string? filter, string? projectId, string? configuration, CancellationToken cancellationToken = default);
+
+    // -------- NuGet --------
+    Task<NuGetListResult> NugetListAsync(string? projectId, CancellationToken cancellationToken = default);
+    Task<NuGetActionResult> NugetAddAsync(string projectId, string packageId, string? version, CancellationToken cancellationToken = default);
+    Task<NuGetActionResult> NugetRemoveAsync(string projectId, string packageId, CancellationToken cancellationToken = default);
 }
