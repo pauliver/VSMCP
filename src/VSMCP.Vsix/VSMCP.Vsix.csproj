@@ -109,6 +109,8 @@
     <Compile Include="RpcTarget.NuGet.cs" />
     <Compile Include="RpcTarget.CodeGen.cs" />
     <Compile Include="RpcTarget.Enc.cs" />
+    <Compile Include="CtxHelpers.cs" />
+    <Compile Include="RpcTarget.Ctx.cs" />
   </ItemGroup>
 
   <ItemGroup>

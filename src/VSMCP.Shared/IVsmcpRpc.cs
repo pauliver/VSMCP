@@ -237,4 +237,28 @@ public interface IVsmcpRpc
     Task<AddMemberResult> CodeOverrideMemberAsync(string file, string className, string memberName, CancellationToken cancellationToken = default);
     Task<AddMemberResult> CodeGenerateConstructorAsync(string file, string className, IReadOnlyList<string>? fromFields, CancellationToken cancellationToken = default);
     Task<AddMemberResult> CodeGenerateEqualityAsync(string file, string className, CancellationToken cancellationToken = default);
+
+    // -------- Context efficiency (issues #72-#89) --------
+
+    // Phase 1
+    Task<BuildSummaryResult> BuildSummaryAsync(string buildId, CancellationToken cancellationToken = default);
+    Task<TestSummaryResult> TestRunSummaryAsync(string? filter, string? projectId, string? configuration, string mode, CancellationToken cancellationToken = default);
+    Task<GroupedDiagnosticsResult> CodeDiagnosticsGroupedAsync(string? file, int maxResults, CancellationToken cancellationToken = default);
+    Task<GroupedDiagnosticsResult> BuildErrorsGroupedAsync(string buildId, CancellationToken cancellationToken = default);
+
+    // Phase 2
+    Task<FileReadIfChangedResult> FileReadIfChangedAsync(string path, string? knownHash, FileRange? range, CancellationToken cancellationToken = default);
+    Task<CodeDiffResult> CodeDiffAsync(string file, string? baseHash, CancellationToken cancellationToken = default);
+
+    // Phase 3
+    Task<FileOutlineResult> FileOutlineAsync(string file, CancellationToken cancellationToken = default);
+    Task<FileInfoResult> FileInfoAsync(string file, CancellationToken cancellationToken = default);
+    Task<SymbolSummaryResult> CodeSymbolSummaryAsync(string symbol, CancellationToken cancellationToken = default);
+    Task<InvestigateResult> CodeInvestigateAsync(string symbol, int maxRefs, bool includeTests, CancellationToken cancellationToken = default);
+
+    // Phase 4
+    Task<SessionScopeResult> SessionScopeAsync(IReadOnlyList<string>? symbols, string? project, string? folder, CancellationToken cancellationToken = default);
+    Task<SessionCurrentResult> SessionCurrentAsync(CancellationToken cancellationToken = default);
+    Task SessionClearAsync(CancellationToken cancellationToken = default);
+    Task<IoContextResult> IoContextAsync(CancellationToken cancellationToken = default);
 }
