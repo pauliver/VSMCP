@@ -111,6 +111,7 @@
     <Compile Include="RpcTarget.Enc.cs" />
     <Compile Include="CtxHelpers.cs" />
     <Compile Include="RpcTarget.Ctx.cs" />
+    <Compile Include="RpcTarget.CtxCrosscut.cs" />
   </ItemGroup>
 
   <ItemGroup>

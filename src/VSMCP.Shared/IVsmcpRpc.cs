@@ -261,4 +261,8 @@ public interface IVsmcpRpc
     Task<SessionCurrentResult> SessionCurrentAsync(CancellationToken cancellationToken = default);
     Task SessionClearAsync(CancellationToken cancellationToken = default);
     Task<IoContextResult> IoContextAsync(CancellationToken cancellationToken = default);
+    Task<GroupedDiagnosticsResult> CodeVerifyFilesAsync(IReadOnlyList<string> files, CancellationToken cancellationToken = default);
+    Task<TextSearchResult> SearchTextCompactAsync(string pattern, string? filePattern, string? projectId, IReadOnlyList<string>? kinds, int maxResults, string? cursor, CancellationToken cancellationToken = default);
+    Task<DiagEventsResult> DiagEventsListInternedAsync(string? filter, int maxResults, CancellationToken cancellationToken = default);
+    Task<VariableListResult> FrameLocalsSummaryAsync(int? threadId, int? frameIndex, CancellationToken cancellationToken = default);
 }

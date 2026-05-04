@@ -161,4 +161,51 @@ public sealed partial class VsmcpTools
         var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         return await proxy.IoContextAsync(ct).ConfigureAwait(false);
     }
+
+    [McpServerTool(Name = "code.verify_files")]
+    [Description("Issue #77 — companion for any mutation. Pass the list of files touched by your last edit; returns grouped diagnostics for *those files only*. Lets you replace 'edit + code.diagnostics' with 'edit + code.verify_files', avoiding scanning the rest of the solution.")]
+    public async Task<GroupedDiagnosticsResult> CodeVerifyFiles(
+        [Description("Absolute file paths.")] IReadOnlyList<string> files,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.CodeVerifyFilesAsync(files, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "search.text_compact")]
+    [Description("Issue #78 + #80 variant of search.text. Path-intern table + base64 continuation cursor. Each match's File field holds the interned PathId (an integer-as-string) — look it up in PathTable. Pass NextCursor on the next call to get the following page.")]
+    public async Task<TextSearchResult> SearchTextCompact(
+        [Description("Regex pattern.")] string pattern,
+        [Description("File glob to scope (e.g. '*.cs').")] string? filePattern = null,
+        [Description("Project to scope.")] string? projectId = null,
+        [Description("Item kinds: 'file' (default).")] IReadOnlyList<string>? kinds = null,
+        [Description("Max matches per page (default 500).")] int maxResults = 500,
+        [Description("Continuation cursor from a prior NextCursor; null for first page.")] string? cursor = null,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.SearchTextCompactAsync(pattern, filePattern, projectId, kinds, maxResults, cursor, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "diag.events_list_interned")]
+    [Description("Issue #84 variant of diag.events_list. Each event's stack frames are deduplicated into a single FramesTable; events reference frames by ID via FrameIds. Typical exception storms: 50 events × 20 frames × 80% sharing → ~70% smaller than diag.events_list.")]
+    public async Task<DiagEventsResult> DiagEventsListInterned(
+        [Description("Event kind filter (same values as diag.events_list).")] string? filter = null,
+        [Description("Max events to return (default 100).")] int maxResults = 100,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DiagEventsListInternedAsync(filter, maxResults, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "frame.locals_summary")]
+    [Description("Issue #87 variant of frame.locals: returns top-level locals only (no nested fields/elements). Use when you just want to see 'what's in scope' before deciding whether to drill in via frame.locals (with expandDepth) on a specific name.")]
+    public async Task<VariableListResult> FrameLocalsSummary(
+        [Description("Thread id (optional; defaults to current thread).")] int? threadId = null,
+        [Description("Frame index (optional; defaults to top frame).")] int? frameIndex = null,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.FrameLocalsSummaryAsync(threadId, frameIndex, ct).ConfigureAwait(false);
+    }
 }

@@ -20,6 +20,12 @@ public sealed class TextSearchResult
     public List<TextMatch> Matches { get; set; } = new();
     public int Total { get; set; }
     public bool Truncated { get; set; }
+    /// <summary>Path intern table (issue #78). When set, each Match.File is replaced by an integer-as-string into this map.</summary>
+    public Dictionary<int, string>? PathTable { get; set; }
+    /// <summary>Continuation cursor (issue #80). Pass as `cursor` to the next call; null when no more results.</summary>
+    public string? NextCursor { get; set; }
+    /// <summary>How many more results exist beyond this page (best-effort; -1 when unknown).</summary>
+    public int RemainingCount { get; set; }
 }
 
 // Symbol search result

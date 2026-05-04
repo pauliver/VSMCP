@@ -16,6 +16,8 @@ public sealed class DiagEvent
     public DiagEventKind Kind { get; set; }
     public long TimestampMs { get; set; }
     public string Summary { get; set; } = "";
+    /// <summary>Populated only by the *_interned diag tools (issue #84): IDs into DiagEventsResult.FramesTable.</summary>
+    public List<int>? FrameIds { get; set; }
 }
 
 public sealed class DiagEventDetail
@@ -40,6 +42,9 @@ public sealed class DiagEventsResult
     public int TotalCollected { get; set; }
     /// <summary>TimestampMs of the newest event in this result. Pass as sinceTimestampMs on the next call to receive only newer events.</summary>
     public long LatestTimestampMs { get; set; }
+    /// <summary>Frame intern table (issue #84). Populated by the *_interned variants; keyed by frame id, value is the shared frame info.
+    /// When set, each event's full Frames list is replaced by FrameIds referencing this table.</summary>
+    public Dictionary<int, StackFrameInfo>? FramesTable { get; set; }
 }
 
 public sealed class DiagMemorySnapshot
