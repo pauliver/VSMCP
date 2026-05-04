@@ -103,6 +103,7 @@ internal sealed partial class RpcTarget
         await _jtf.SwitchToMainThreadAsync(cancellationToken);
         var dte = await RequireDteAsync();
         try { dte.Debugger.Stop(WaitForDesignMode: false); } catch (Exception ex) { throw Interop("stop", ex); }
+        await WaitForDesignModeAsync(dte, cancellationToken).ConfigureAwait(false);
         return Result("Stopped.");
     }
 
@@ -111,6 +112,7 @@ internal sealed partial class RpcTarget
         await _jtf.SwitchToMainThreadAsync(cancellationToken);
         var dte = await RequireDteAsync();
         try { dte.ExecuteCommand("Debug.StopDebugging"); } catch (Exception ex) { throw Interop("stop_command", ex); }
+        await WaitForDesignModeAsync(dte, cancellationToken).ConfigureAwait(false);
         return Result("Stop command sent.");
     }
 
@@ -136,9 +138,29 @@ internal sealed partial class RpcTarget
         catch { }
 
         try { dte.Debugger.Stop(WaitForDesignMode: false); } catch { }
+        await WaitForDesignModeAsync(dte, cancellationToken).ConfigureAwait(false);
 
         var note = killed.Count > 0 ? $"Killed: {string.Join(", ", killed)}." : "No processes to kill.";
         return Result("Stopped.", note);
+    }
+
+    /// <summary>
+    /// Polls the debugger's CurrentMode until it transitions to DesignMode (the stopped state)
+    /// or a 2s timeout elapses. Lets debug.stop's response Info reflect the post-stop snapshot
+    /// rather than echoing the running state — fixes #46.
+    /// </summary>
+    private async Task WaitForDesignModeAsync(EnvDTE80.DTE2 dte, CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(2);
+        while (DateTime.UtcNow < deadline)
+        {
+            await _jtf.SwitchToMainThreadAsync(ct);
+            EnvDTE.dbgDebugMode mode;
+            try { mode = dte.Debugger?.CurrentMode ?? EnvDTE.dbgDebugMode.dbgDesignMode; }
+            catch { return; }
+            if (mode == EnvDTE.dbgDebugMode.dbgDesignMode) return;
+            await Task.Delay(50, ct).ConfigureAwait(false);
+        }
     }
 
     public async Task<DebugActionResult> DebugDetachAsync(CancellationToken cancellationToken = default)
