@@ -112,11 +112,16 @@ internal static class CliRunner
             }
             else if (args[i].StartsWith("--", StringComparison.Ordinal))
             {
-                // --argname value
+                // --argname value : try parsing value as JSON first (numbers, bools, arrays,
+                // objects all work). Fall back to a quoted string when not valid JSON.
                 var key = args[i].Substring(2);
                 if (i + 1 < args.Length)
                 {
-                    argMap[key] = JsonDocument.Parse($"\"{args[i + 1].Replace("\"", "\\\"")}\"").RootElement.Clone();
+                    var raw = args[i + 1];
+                    JsonElement parsed;
+                    try { parsed = JsonDocument.Parse(raw).RootElement.Clone(); }
+                    catch { parsed = JsonDocument.Parse(JsonSerializer.Serialize(raw)).RootElement.Clone(); }
+                    argMap[key] = parsed;
                     i++;
                 }
             }

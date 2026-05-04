@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.CodeAnalysis;
 using Microsoft.VisualStudio.Shell;
 using VSMCP.Shared;
 
@@ -47,6 +49,14 @@ internal sealed partial class RpcTarget
             RootNamespace = rootNs,
             SuggestedAbsolutePath = suggested,
         };
+    }
+
+    /// <summary>Pick any C/C++ file in the project to use as a starting point for header lookup.</summary>
+    private async Task<string?> ResolveAnchorCppFileAsync(string projectId, CancellationToken ct)
+    {
+        var files = await FileListAsync(projectId, null, "*.{h,hpp,hxx,c,cpp,cc,cxx}",
+            new[] { "file" }, 100, ct).ConfigureAwait(false);
+        return files.Files.FirstOrDefault()?.Path;
     }
 
     private static string SanitizeNamespaceSegment(string seg)
@@ -149,38 +159,64 @@ internal sealed partial class RpcTarget
         var generatedUsings = new List<string>();
         var generatedMembers = new List<string>();
 
+        // Resolve base class symbol + abstract members for stub generation.
+        INamedTypeSymbol? baseSym = null;
+        var stubBodies = new List<string>();
+        if (!string.IsNullOrEmpty(baseClass) && generateStubs)
+        {
+            try
+            {
+                var ws = await GetWorkspaceAsync(cancellationToken);
+                foreach (var proj in ws.CurrentSolution.Projects)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var compilation = await proj.GetCompilationAsync(cancellationToken).ConfigureAwait(false);
+                    if (compilation is null) continue;
+                    baseSym = compilation.GetTypeByMetadataName(baseClass!)
+                        ?? compilation.GlobalNamespace.GetAllTypesInternal(cancellationToken)
+                            .FirstOrDefault(t => t.Name == baseClass || t.ToDisplayString() == baseClass);
+                    if (baseSym is not null) break;
+                }
+                if (baseSym is not null)
+                {
+                    foreach (var m in baseSym.GetMembers())
+                    {
+                        if (!m.IsAbstract) continue;
+                        if (m.IsImplicitlyDeclared) continue;
+                        stubBodies.Add(GenerateMemberStub(m, isOverride: true));
+                        generatedMembers.Add(m.Name);
+                    }
+                    var bnsName = baseSym.ContainingNamespace?.ToDisplayString();
+                    if (!string.IsNullOrEmpty(bnsName) && bnsName != "<global namespace>" && bnsName != nsInfo.Namespace)
+                        generatedUsings.Add($"using {bnsName};");
+                }
+            }
+            catch { /* best-effort: stubs left empty */ }
+        }
+
         var sb = new StringBuilder();
+        foreach (var u in generatedUsings) sb.AppendLine(u);
+        if (generatedUsings.Count > 0) sb.AppendLine();
         sb.AppendLine($"namespace {nsInfo.Namespace};");
         sb.AppendLine();
 
-        var declarationParts = new List<string> { $"public class {name}" };
         var inheritanceList = new List<string>();
-
-        if (!string.IsNullOrEmpty(baseClass))
-        {
-            inheritanceList.Add(baseClass!);
-            // Generate stubs for abstract members of the base class.
-            if (generateStubs)
-            {
-                try
-                {
-                    var info = await FileInheritanceAsync("", baseClass!, cancellationToken).ConfigureAwait(false);
-                    // Best-effort: we can't easily get base class members without resolving the symbol.
-                    // Leave stubs empty; advanced version would walk INamedTypeSymbol.GetMembers().
-                }
-                catch { /* skip */ }
-            }
-        }
-
+        if (!string.IsNullOrEmpty(baseClass)) inheritanceList.Add(baseClass!);
         if (interfaces is not null)
             foreach (var i in interfaces) inheritanceList.Add(i);
 
         if (inheritanceList.Count > 0)
-            sb.Append("public class ").Append(name).Append(" : ").AppendLine(string.Join(", ", inheritanceList));
+            sb.AppendLine($"public class {name} : {string.Join(", ", inheritanceList)}");
         else
             sb.AppendLine($"public class {name}");
 
         sb.AppendLine("{");
+        foreach (var stub in stubBodies)
+        {
+            foreach (var line in stub.Split('\n'))
+                sb.AppendLine("    " + line.TrimEnd('\r'));
+            sb.AppendLine();
+        }
         sb.AppendLine("}");
 
         var relPath = string.IsNullOrEmpty(folder) ? name + ".cs" : Path.Combine(folder!, name + ".cs").Replace('\\', '/');
@@ -218,6 +254,39 @@ internal sealed partial class RpcTarget
         var hdrRelPath = Path.Combine(hdrFolder, name + ".h").Replace('\\', '/');
         var srcRelPath = Path.Combine(srcFolder, name + ".cpp").Replace('\\', '/');
 
+        // Find virtual member overrides from the base class header (best-effort regex).
+        var overrideStubs = new List<(string DeclLine, string DefLine)>();
+        if (!string.IsNullOrEmpty(baseClass) && generateVirtualStubs)
+        {
+            try
+            {
+                var anchor = await ResolveAnchorCppFileAsync(projectId!, cancellationToken).ConfigureAwait(false);
+                if (anchor is not null)
+                {
+                    var hdr = await CppHeaderLookupAsync(anchor, baseClass!, cancellationToken).ConfigureAwait(false);
+                    if (hdr.Header is not null && File.Exists(hdr.Header.File))
+                    {
+                        var lines = File.ReadAllLines(hdr.Header.File);
+                        var pureRx = new Regex(
+                            @"\bvirtual\s+(?<ret>[\w\:\<\>\s\*\&,]+?)\s+(?<name>\w+)\s*\((?<args>[^)]*)\)\s*(?:const)?\s*=\s*0\s*;",
+                            RegexOptions.Compiled);
+                        foreach (var l in lines)
+                        {
+                            var m = pureRx.Match(l);
+                            if (!m.Success) continue;
+                            var ret = m.Groups["ret"].Value.Trim();
+                            var mname = m.Groups["name"].Value;
+                            var argsRaw = m.Groups["args"].Value.Trim();
+                            overrideStubs.Add((
+                                DeclLine: $"    {ret} {mname}({argsRaw}) override;",
+                                DefLine:  $"{ret} {name}::{mname}({argsRaw}) {{ /* TODO */ }}"));
+                        }
+                    }
+                }
+            }
+            catch { /* best-effort */ }
+        }
+
         var hdrSb = new StringBuilder();
         hdrSb.AppendLine("#pragma once");
         hdrSb.AppendLine();
@@ -235,6 +304,8 @@ internal sealed partial class RpcTarget
         hdrSb.AppendLine("public:");
         hdrSb.AppendLine($"    {name}();");
         hdrSb.AppendLine($"    ~{name}();");
+        foreach (var (decl, _) in overrideStubs)
+            hdrSb.AppendLine(decl);
         hdrSb.AppendLine("};");
 
         var srcSb = new StringBuilder();
@@ -242,6 +313,11 @@ internal sealed partial class RpcTarget
         srcSb.AppendLine();
         srcSb.AppendLine($"{name}::{name}() = default;");
         srcSb.AppendLine($"{name}::~{name}() = default;");
+        foreach (var (_, def) in overrideStubs)
+        {
+            srcSb.AppendLine();
+            srcSb.AppendLine(def);
+        }
 
         var hdrScaffold = await CodeScaffoldFileAsync(projectId!, hdrRelPath, hdrSb.ToString(), "cpp", cancellationToken).ConfigureAwait(false);
         var srcScaffold = await CodeScaffoldFileAsync(projectId!, srcRelPath, srcSb.ToString(), "cpp", cancellationToken).ConfigureAwait(false);
