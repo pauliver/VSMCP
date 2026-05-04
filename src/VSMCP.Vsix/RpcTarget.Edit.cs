@@ -176,6 +176,26 @@ internal sealed partial class RpcTarget
             }
         }
 
+        var added = new List<string>();
+        if (addMissing)
+        {
+            // Pull suggestions from the in-progress edit's diagnostics.
+            var suggestions = await CodeSuggestUsingsAsync(file, symbolNames: null, cancellationToken).ConfigureAwait(false);
+            foreach (var s in suggestions.Suggestions)
+            {
+                if (string.IsNullOrEmpty(s.Namespace)) continue;
+                if (keep.Any(u => string.Equals(u.Name?.ToString(), s.Namespace, StringComparison.Ordinal))) continue;
+                if (added.Contains(s.Namespace)) continue;
+                keep.Add(SyntaxFactory.UsingDirective(SyntaxFactory.ParseName(s.Namespace))
+                    .WithTrailingTrivia(SyntaxFactory.CarriageReturnLineFeed));
+                added.Add(s.Namespace);
+            }
+            keep = keep
+                .OrderBy(u => u.Name?.ToString().StartsWith("System", StringComparison.Ordinal) == true ? 0 : 1)
+                .ThenBy(u => u.Name?.ToString(), StringComparer.Ordinal)
+                .ToList();
+        }
+
         var newRoot = root.WithUsings(SyntaxFactory.List(keep));
         await _jtf.SwitchToMainThreadAsync(cancellationToken);
         var changed = !newRoot.IsEquivalentTo(root, topLevel: false);
@@ -184,8 +204,8 @@ internal sealed partial class RpcTarget
 
         return new OrganizeUsingsResult
         {
-            Changes = (changed ? 1 : 0) + (removed.Count > 0 ? 1 : 0),
-            Added = new List<string>(),
+            Changes = (changed ? 1 : 0) + (removed.Count > 0 ? 1 : 0) + (added.Count > 0 ? 1 : 0),
+            Added = added,
             Removed = removed,
         };
     }

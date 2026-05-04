@@ -164,33 +164,175 @@ internal sealed partial class RpcTarget
         };
     }
 
-    public Task<PreprocessResult> CppPreprocessAsync(
+    public async Task<PreprocessResult> CppPreprocessAsync(
         string file, IReadOnlyList<string>? defines, CancellationToken cancellationToken = default)
     {
-        // Full preprocessing requires invoking cl.exe with /P or /E. We don't ship a path discovery
-        // here; users wanting preprocessed output should configure VS or invoke MSBuild directly.
-        // Return Unsupported with a clear hint rather than a low-fidelity hand-rolled approximation.
-        throw new VsmcpException(ErrorCodes.Unsupported,
-            "cpp.preprocess requires invoking cl.exe and a full toolchain. " +
-            "Run `cl /P <file>` from a Developer Command Prompt or use the VS Build menu's 'Preprocess File' action.");
+        if (string.IsNullOrEmpty(file)) throw new VsmcpException(ErrorCodes.NotFound, "file is required.");
+        if (!File.Exists(file)) throw new VsmcpException(ErrorCodes.NotFound, $"File not found: {file}");
+
+        var clExe = await ResolveClExeAsync(cancellationToken).ConfigureAwait(false);
+
+        var defineArgs = defines is null
+            ? ""
+            : string.Join(" ", defines.Where(d => !string.IsNullOrEmpty(d)).Select(d => $"/D{d}"));
+
+        var outFile = Path.ChangeExtension(file, ".i");
+        var args = $"/nologo /P /Fi\"{outFile}\" {defineArgs} \"{file}\"";
+
+        await RunProcessAsync(clExe, args, cancellationToken).ConfigureAwait(false);
+        if (!File.Exists(outFile))
+            throw new VsmcpException(ErrorCodes.InteropFault, $"cl.exe did not produce {outFile} — check stderr for errors.");
+
+        var source = File.ReadAllText(outFile);
+        var lineMap = new List<LineMapItem>();
+        // cl.exe emits #line directives mapping back to source lines. Parse them.
+        var rx = new System.Text.RegularExpressions.Regex(@"^\s*#line\s+(\d+)\s+", System.Text.RegularExpressions.RegexOptions.Multiline);
+        var preprocLine = 1;
+        foreach (var line in source.Split('\n'))
+        {
+            var m = rx.Match(line);
+            if (m.Success && int.TryParse(m.Groups[1].Value, out var srcLine))
+                lineMap.Add(new LineMapItem { SourceLine = srcLine, PreprocLine = preprocLine });
+            preprocLine++;
+        }
+        return new PreprocessResult { Source = source, LineMap = lineMap };
     }
 
-    public Task<ApiReferenceResult> CppApiRefAsync(
+    private static async Task<string> ResolveClExeAsync(CancellationToken ct)
+    {
+        // Try vswhere.exe (ships with VS Installer) to find the latest VS install with VC tools.
+        var vswhere = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            "Microsoft Visual Studio", "Installer", "vswhere.exe");
+        if (!File.Exists(vswhere))
+            throw new VsmcpException(ErrorCodes.Unsupported, $"vswhere.exe not found at {vswhere}. Install VS or run from a Developer Command Prompt.");
+
+        var output = await RunProcessAsync(vswhere,
+            "-latest -products * -requires Microsoft.VisualCpp.Tools.Host.x86 -property installationPath",
+            ct).ConfigureAwait(false);
+        var installPath = output.Trim().Split('\n').FirstOrDefault()?.Trim();
+        if (string.IsNullOrEmpty(installPath) || !Directory.Exists(installPath))
+            throw new VsmcpException(ErrorCodes.Unsupported, "No VS install with VC++ tools found.");
+
+        var versionTxt = Path.Combine(installPath!, "VC", "Auxiliary", "Build", "Microsoft.VCToolsVersion.default.txt");
+        if (!File.Exists(versionTxt))
+            throw new VsmcpException(ErrorCodes.Unsupported, $"VC tools version file not found: {versionTxt}");
+
+        var version = File.ReadAllText(versionTxt).Trim();
+        var clx64 = Path.Combine(installPath, "VC", "Tools", "MSVC", version, "bin", "Hostx64", "x64", "cl.exe");
+        if (File.Exists(clx64)) return clx64;
+        var clx86 = Path.Combine(installPath, "VC", "Tools", "MSVC", version, "bin", "Hostx86", "x86", "cl.exe");
+        if (File.Exists(clx86)) return clx86;
+        throw new VsmcpException(ErrorCodes.Unsupported, $"cl.exe not found under VC tools {version}.");
+    }
+
+    public async Task<ApiReferenceResult> CppApiRefAsync(
         string apiName, CancellationToken cancellationToken = default)
     {
-        // No offline API DB ships with VSMCP. Defer to docs.microsoft.com lookup or IntelliSense.
-        throw new VsmcpException(ErrorCodes.Unsupported,
-            "cpp.api_ref requires an offline API database which is not bundled. " +
-            "Use code.quick_info on a usage of the API for inline documentation, or open docs.microsoft.com.");
+        if (string.IsNullOrEmpty(apiName)) throw new VsmcpException(ErrorCodes.NotFound, "apiName is required.");
+
+        // Search across all C/C++ source + header files in the solution for a declaration.
+        var files = await FileListAsync(null, null, "*.{h,hpp,hxx,c,cpp,cc,cxx}",
+            new[] { "file" }, 50_000, cancellationToken).ConfigureAwait(false);
+
+        var declRx = new System.Text.RegularExpressions.Regex(
+            $@"\b(?:class|struct|enum|typedef|using)\s+{System.Text.RegularExpressions.Regex.Escape(apiName)}\b" +
+            $@"|^\s*[\w\*\&:<>,\s]+\s+{System.Text.RegularExpressions.Regex.Escape(apiName)}\s*\(",
+            System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.Multiline);
+
+        foreach (var f in files.Files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string[] lines;
+            try { lines = File.ReadAllLines(f.Path); }
+            catch { continue; }
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (!declRx.IsMatch(lines[i])) continue;
+
+                // Walk backwards to gather any /** ... */ or /// ... documentation block.
+                var docs = new List<string>();
+                for (int j = i - 1; j >= 0; j--)
+                {
+                    var t = lines[j].TrimStart();
+                    if (t.StartsWith("///", StringComparison.Ordinal) || t.StartsWith("//", StringComparison.Ordinal))
+                        docs.Insert(0, t);
+                    else if (t.StartsWith("*", StringComparison.Ordinal) || t.EndsWith("*/", StringComparison.Ordinal) || t.StartsWith("/**", StringComparison.Ordinal))
+                        docs.Insert(0, t);
+                    else break;
+                }
+
+                return new ApiReferenceResult
+                {
+                    Name = apiName,
+                    Type = lines[i].Contains("class ") ? "class" :
+                           lines[i].Contains("struct ") ? "struct" :
+                           lines[i].Contains("enum ") ? "enum" :
+                           lines[i].Contains("typedef ") ? "typedef" :
+                           "function",
+                    Declaration = lines[i].Trim(),
+                    Documentation = docs.Count > 0 ? string.Join("\n", docs) : null,
+                    HeaderFile = f.Path,
+                };
+            }
+        }
+
+        throw new VsmcpException(ErrorCodes.NotFound, $"No declaration of '{apiName}' found in solution C/C++ files.");
     }
 
-    public Task<GeneratedFileInfo> CppGeneratedFileAsync(
+    public async Task<GeneratedFileInfo> CppGeneratedFileAsync(
         string file, string type, CancellationToken cancellationToken = default)
     {
-        // Tracking generated files (e.g. MIDL, build-event-generated headers) requires per-project
-        // build-system integration that isn't available through the generic VS automation surface.
-        throw new VsmcpException(ErrorCodes.Unsupported,
-            "cpp.generated_file requires build-system specific integration. " +
-            "Inspect the project's pre-build steps in VS or its .vcxproj for generator outputs.");
+        if (string.IsNullOrEmpty(file)) throw new VsmcpException(ErrorCodes.NotFound, "file is required.");
+        await _jtf.SwitchToMainThreadAsync(cancellationToken);
+
+        if (await _package.GetServiceAsync(typeof(EnvDTE.DTE)) is not EnvDTE80.DTE2 dte)
+            throw new VsmcpException(ErrorCodes.InteropFault, "DTE service unavailable.");
+
+        var fileFullPath = Path.GetFullPath(file);
+
+        // Walk every C++ project's .vcxproj and look for <CustomBuild> items whose <Outputs>
+        // contains the queried file (or whose source generator type matches).
+        foreach (var project in VsHelpers.EnumerateProjects(dte.Solution))
+        {
+            string? projPath = null;
+            try { projPath = project.FullName; } catch { }
+            if (string.IsNullOrEmpty(projPath) || !File.Exists(projPath)) continue;
+            if (!projPath!.EndsWith(".vcxproj", StringComparison.OrdinalIgnoreCase)) continue;
+
+            System.Xml.Linq.XDocument xml;
+            try { xml = System.Xml.Linq.XDocument.Load(projPath); }
+            catch { continue; }
+
+            foreach (var cb in xml.Descendants().Where(e => e.Name.LocalName == "CustomBuild"))
+            {
+                var outputs = cb.Element(System.Xml.Linq.XName.Get("Outputs", cb.Name.NamespaceName))?.Value ?? "";
+                var include = cb.Attribute("Include")?.Value ?? "";
+
+                var outputsAbs = outputs.Split(';')
+                    .Select(o => Path.IsPathRooted(o)
+                        ? o
+                        : Path.GetFullPath(Path.Combine(Path.GetDirectoryName(projPath)!, o.Trim())))
+                    .ToList();
+
+                if (outputsAbs.Any(o => string.Equals(o, fileFullPath, StringComparison.OrdinalIgnoreCase)))
+                {
+                    var generatorAbs = Path.IsPathRooted(include)
+                        ? include
+                        : Path.Combine(Path.GetDirectoryName(projPath)!, include);
+                    return new GeneratedFileInfo
+                    {
+                        GeneratedFile = fileFullPath,
+                        GeneratedFrom = generatorAbs,
+                        LineMap = new List<LineMapItem>(),
+                    };
+                }
+            }
+        }
+
+        throw new VsmcpException(ErrorCodes.NotFound,
+            $"No <CustomBuild> rule in any .vcxproj produces '{fileFullPath}'. " +
+            "Either the file isn't generated, or its build rule lives outside the project files (e.g. CMake).");
     }
 }

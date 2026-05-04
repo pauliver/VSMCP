@@ -37,10 +37,10 @@ public sealed partial class VsmcpTools
     }
 
     [McpServerTool(Name = "edit.organize_usings")]
-    [Description("Sort using directives in a file (System namespaces first) and optionally remove unused ones (CS8019 diagnostics). Applied via Roslyn workspace edit so undo is one operation.")]
+    [Description("Sort using directives (System first), optionally remove unused (CS8019), and optionally add missing usings inferred from CS0246/CS0103 diagnostics via code.suggest_usings. Applied via Roslyn workspace edit so undo is one operation.")]
     public async Task<OrganizeUsingsResult> EditOrganizeUsings(
         [Description("Absolute file path.")] string file,
-        [Description("Add missing usings. Currently a no-op (planned).")] bool addMissing = false,
+        [Description("Add missing usings inferred from unresolved-symbol diagnostics. Default false.")] bool addMissing = false,
         [Description("Remove unused usings flagged by CS8019. Default true.")] bool removeUnused = true,
         CancellationToken ct = default)
     {

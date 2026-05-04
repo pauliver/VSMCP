@@ -41,7 +41,7 @@ public sealed partial class VsmcpTools
     }
 
     [McpServerTool(Name = "cpp.preprocess")]
-    [Description("Run the C/C++ preprocessor on a file. Currently returns Unsupported — full preprocessing requires invoking cl.exe with /P or /E. Use VS's 'Preprocess File' command from a Developer Prompt.")]
+    [Description("Run the C/C++ preprocessor on a file via cl.exe /P. Auto-discovers cl.exe via vswhere + the active VC tools version. Returns the preprocessed source plus a #line-driven SourceLine→PreprocLine map.")]
     public async Task<PreprocessResult> CppPreprocess(
         [Description("C/C++ source file.")] string file,
         [Description("Additional defines (e.g. 'DEBUG', 'FOO=1').")] IReadOnlyList<string>? defines = null,
@@ -52,7 +52,7 @@ public sealed partial class VsmcpTools
     }
 
     [McpServerTool(Name = "cpp.api_ref")]
-    [Description("Look up an API in an offline reference DB. Currently returns Unsupported — no DB ships with VSMCP. Use code.quick_info on a usage or search docs.microsoft.com.")]
+    [Description("Locate a C/C++ API's declaration across all C/C++ files in the solution and return the declaration line plus any preceding /// or /** ... */ documentation block. Best-effort regex search (no semantic analysis).")]
     public async Task<ApiReferenceResult> CppApiRef(
         [Description("API name (e.g. 'CreateFile').")] string apiName,
         CancellationToken ct = default)
@@ -62,7 +62,7 @@ public sealed partial class VsmcpTools
     }
 
     [McpServerTool(Name = "cpp.generated_file")]
-    [Description("Inspect generator → output mapping for build-event-generated files (MIDL, etc). Currently returns Unsupported — requires per-project build-system integration.")]
+    [Description("Find the generator → output mapping for a build-event-generated file by walking every .vcxproj's <CustomBuild> items. Useful for tracking down where a generated header/source comes from.")]
     public async Task<GeneratedFileInfo> CppGeneratedFile(
         [Description("File path.")] string file,
         [Description("Generator type (e.g. 'midl', 'tlb').")] string type,

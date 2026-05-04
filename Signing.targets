@@ -1,0 +1,47 @@
+<Project>
+  <!--
+    Code-signing scaffold (issue #34).
+
+    Signs the produced VSIX (and any DLL produced) when the env var VSMCP_SIGN_PFX
+    points to a valid .pfx file. The password is read from the env var named in
+    VSMCP_SIGN_PASSWORD_VAR (default: VSMCP_SIGN_PASSWORD) — that indirection
+    lets users keep the real password out of MSBuild logs.
+
+    No-op when VSMCP_SIGN_PFX is unset or the file doesn't exist, so CI builds
+    that don't have access to the cert continue to produce unsigned bits.
+
+    To enable:
+      $env:VSMCP_SIGN_PFX = "C:\path\to\codesign.pfx"
+      $env:VSMCP_SIGN_PASSWORD = "the-password"
+      msbuild ... -p:Configuration=Release
+
+    To verify a signed output:
+      signtool verify /pa /v <path>
+  -->
+  <PropertyGroup>
+    <VsmcpSignPfx>$(VSMCP_SIGN_PFX)</VsmcpSignPfx>
+    <VsmcpSignPasswordVar Condition="'$(VsmcpSignPasswordVar)' == ''">VSMCP_SIGN_PASSWORD</VsmcpSignPasswordVar>
+    <VsmcpSignPassword>$([System.Environment]::GetEnvironmentVariable($(VsmcpSignPasswordVar)))</VsmcpSignPassword>
+    <VsmcpSignTimestampUrl Condition="'$(VsmcpSignTimestampUrl)' == ''">http://timestamp.digicert.com</VsmcpSignTimestampUrl>
+    <VsmcpSignEnabled Condition="Exists('$(VsmcpSignPfx)') And '$(VsmcpSignPassword)' != ''">true</VsmcpSignEnabled>
+    <VsmcpSignEnabled Condition="'$(VsmcpSignEnabled)' == ''">false</VsmcpSignEnabled>
+  </PropertyGroup>
+
+  <Target Name="VsmcpSignAfterBuild" AfterTargets="Build" Condition="'$(VsmcpSignEnabled)' == 'true'">
+    <ItemGroup>
+      <_VsmcpSignTargets Include="$(TargetPath)" Condition="Exists('$(TargetPath)')" />
+      <_VsmcpSignTargets Include="$(OutDir)$(AssemblyName).vsix" Condition="Exists('$(OutDir)$(AssemblyName).vsix')" />
+    </ItemGroup>
+    <Message Importance="high" Text="Signing %(_VsmcpSignTargets.Identity) with $(VsmcpSignPfx)" />
+    <Exec Command="signtool sign /f &quot;$(VsmcpSignPfx)&quot; /p &quot;$(VsmcpSignPassword)&quot; /tr &quot;$(VsmcpSignTimestampUrl)&quot; /td sha256 /fd sha256 &quot;%(_VsmcpSignTargets.Identity)&quot;"
+          ContinueOnError="false"
+          Condition="'@(_VsmcpSignTargets)' != ''" />
+  </Target>
+
+  <Target Name="VsmcpSignAfterPack" AfterTargets="Pack" Condition="'$(VsmcpSignEnabled)' == 'true' And '$(IsPackable)' == 'true'">
+    <Message Importance="high" Text="Signing $(PackageOutputPath)$(PackageId).$(PackageVersion).nupkg" />
+    <Exec Command="dotnet nuget sign &quot;$(PackageOutputPath)$(PackageId).$(PackageVersion).nupkg&quot; --certificate-path &quot;$(VsmcpSignPfx)&quot; --certificate-password &quot;$(VsmcpSignPassword)&quot; --timestamper &quot;$(VsmcpSignTimestampUrl)&quot;"
+          ContinueOnError="false"
+          Condition="Exists('$(PackageOutputPath)$(PackageId).$(PackageVersion).nupkg')" />
+  </Target>
+</Project>

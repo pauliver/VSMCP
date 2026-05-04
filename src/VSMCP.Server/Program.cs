@@ -3,6 +3,13 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using VSMCP.Server;
 
+// CLI mode (issue #70): if invoked with anything other than `serve` (or no args),
+// run the requested CLI command and exit. Otherwise, run as MCP stdio server.
+if (args.Length > 0 && args[0] != "serve")
+{
+    return await CliRunner.RunAsync(args);
+}
+
 var config = VsmcpConfig.Load();
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -37,6 +44,7 @@ if (config.LoadError is not null)
         .LogWarning("{err}", config.LoadError);
 
 await app.RunAsync();
+return 0;
 
 static LogLevel ParseLogLevel(string level) => level?.ToLowerInvariant() switch
 {
