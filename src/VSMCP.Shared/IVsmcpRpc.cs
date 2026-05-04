@@ -126,7 +126,7 @@ public interface IVsmcpRpc
     // -------- M12: File & Symbol Discovery --------
     Task<FileListResult> FileListAsync(string? projectId, string? folder, string? pattern,
         IReadOnlyList<string>? kinds, int maxResults, CancellationToken cancellationToken = default);
-    Task<SymbolsResult> FileClassesAsync(string? projectId, string? @namespace, IReadOnlyList<string>? kinds,
+    Task<ClassesResult> FileClassesAsync(string? projectId, string? @namespace, IReadOnlyList<string>? kinds,
         int maxResults, CancellationToken cancellationToken = default);
     Task<MembersResult> FileMembersAsync(string file, string className, IReadOnlyList<string>? kinds, bool excludeInherited,
         CancellationToken cancellationToken = default);

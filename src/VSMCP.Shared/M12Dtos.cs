@@ -29,7 +29,7 @@ public sealed class SymbolInfo
     public List<SymbolInfo> Children { get; set; } = new();
 }
 
-public sealed class SymbolsResult
+public sealed class ClassesResult
 {
     public List<SymbolInfo> Symbols { get; set; } = new();
     public int Total { get; set; }
