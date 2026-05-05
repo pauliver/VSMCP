@@ -35,6 +35,7 @@ internal sealed partial class RpcTarget
 
         var result = new FileListResult();
         var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool sawAnyRealProject = false;
 
         foreach (var project in VsHelpers.EnumerateProjects(solution))
         {
@@ -45,6 +46,7 @@ internal sealed partial class RpcTarget
             string? projectPath = null;
             try { projectPath = project.FullName; } catch { }
             if (string.IsNullOrEmpty(projectPath)) continue;
+            sawAnyRealProject = true;
             var projectDir = Path.GetDirectoryName(projectPath) ?? "";
 
             if (string.IsNullOrEmpty(folder))
@@ -59,8 +61,96 @@ internal sealed partial class RpcTarget
             if (result.Files.Count >= maxResults) break;
         }
 
+        // Open Folder mode: no real projects loaded, but the workspace path points to a real
+        // directory. Walk it directly so file_list / file_glob aren't dead in folder mode (#97).
+        if (!sawAnyRealProject && projectId is null && result.Files.Count < maxResults)
+        {
+            string? root = null;
+            try { root = solution.FullName; } catch { }
+            if (!string.IsNullOrEmpty(root) && Directory.Exists(root))
+            {
+                var startDir = string.IsNullOrEmpty(folder)
+                    ? root!
+                    : Path.Combine(root!, folder!.Replace('\\', '/'));
+                if (Directory.Exists(startDir))
+                    CollectFromDirectory(startDir, pattern, kinds, maxResults, result, seenPaths);
+            }
+        }
+
         result.Total = result.Files.Count;
         return result;
+    }
+
+    private static void CollectFromDirectory(
+        string root, string? pattern, IReadOnlyList<string>? kinds,
+        int maxResults, FileListResult result, HashSet<string> seenPaths)
+    {
+        // Skip the usual cruft so a workspace walk doesn't return tens of thousands of build outputs.
+        var skipDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".git", ".vs", ".vscode", "bin", "obj", "node_modules", "packages",
+            "Build", "build", "out", "Release", "release", "Debug", "debug",
+        };
+
+        var stack = new Stack<string>();
+        stack.Push(root);
+
+        while (stack.Count > 0)
+        {
+            var dir = stack.Pop();
+            string[] entries;
+            try { entries = Directory.GetFiles(dir); }
+            catch { continue; }
+
+            foreach (var file in entries)
+            {
+                if (!seenPaths.Add(file)) continue;
+                if (kinds is not null && !kinds.Contains("file")) continue;
+                if (pattern is not null && !MatchesGlob(file, pattern)) continue;
+
+                result.Files.Add(new FileListItem
+                {
+                    Path = file,
+                    Kind = "file",
+                    Language = LanguageFromExtension(file),
+                    ProjectId = null,
+                });
+
+                if (result.Files.Count >= maxResults)
+                {
+                    result.Truncated = true;
+                    return;
+                }
+            }
+
+            string[] subdirs;
+            try { subdirs = Directory.GetDirectories(dir); }
+            catch { continue; }
+            foreach (var sub in subdirs)
+            {
+                var name = Path.GetFileName(sub);
+                if (skipDirs.Contains(name)) continue;
+                stack.Push(sub);
+            }
+        }
+    }
+
+    private static string? LanguageFromExtension(string path)
+    {
+        return Path.GetExtension(path).ToLowerInvariant() switch
+        {
+            ".cs" or ".csx" => "CSharp",
+            ".vb" => "VB",
+            ".cpp" or ".cc" or ".cxx" or ".c" => "C/C++",
+            ".h" or ".hpp" or ".hxx" or ".hh" => "C/C++ Header",
+            ".ts" or ".tsx" => "TypeScript",
+            ".js" or ".jsx" => "JavaScript",
+            ".py" => "Python",
+            ".json" => "JSON",
+            ".xml" => "XML",
+            ".md" => "Markdown",
+            _ => null,
+        };
     }
 
     private static bool ProjectIdMatches(EnvDTE.Project project, string id)

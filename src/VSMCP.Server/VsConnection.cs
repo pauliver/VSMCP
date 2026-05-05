@@ -61,6 +61,9 @@ public sealed class VsConnection : IAsyncDisposable
         await stream.ConnectAsync(5000, ct).ConfigureAwait(false);
 
         var rpc = JsonRpc.Attach(stream);
+        // Match the VSIX side so deserialized RemoteInvocationExceptions carry the real
+        // remote message + type instead of the generic "An error occurred invoking 'X'".
+        rpc.ExceptionStrategy = ExceptionProcessing.ISerializable;
         var proxy = rpc.Attach<IVsmcpRpc>();
 
         var hs = await proxy.HandshakeAsync(ProtocolVersion.Major, ProtocolVersion.Minor, ct).ConfigureAwait(false);

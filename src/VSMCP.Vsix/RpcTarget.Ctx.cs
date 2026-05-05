@@ -277,20 +277,35 @@ internal sealed partial class RpcTarget
         var hash = CtxHelpers.Sha1Hex(read.Content);
         var result = new FileOutlineResult { File = file, ContentHash = hash };
 
-        var ws = await GetWorkspaceAsync(cancellationToken);
-        var doc = FindDocument(ws.CurrentSolution, file);
-        if (doc is null)
+        // Refuse non-C# files outright — outline only works for Roslyn-supported languages.
+        // Previously fell through to a "dump every line" branch that was strictly worse than
+        // file_read (#93). C++ callers should use cpp_header_lookup / cpp_include_chain instead.
+        var ext = Path.GetExtension(file).ToLowerInvariant();
+        if (ext != ".cs" && ext != ".csx")
         {
-            // Non-Roslyn file — just return the lines untouched (best we can do).
-            result.Lines = read.Content.Replace("\r\n", "\n").Split('\n').ToList();
-            return result;
+            throw new VsmcpException(ErrorCodes.Unsupported,
+                $"file_outline only supports C# (.cs/.csx) files; '{ext}' is not Roslyn-parseable. " +
+                "For C/C++ headers, use cpp_header_lookup or cpp_include_chain.");
         }
 
-        var root = await doc.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false) as CompilationUnitSyntax;
+        // Try the live workspace first; fall back to standalone parse for files not in any
+        // loaded project (Open Folder mode, <MiscFiles>, ad-hoc scripts) — fixes #96.
+        CompilationUnitSyntax? root = null;
+        var ws = await GetWorkspaceAsync(cancellationToken);
+        var doc = FindDocument(ws.CurrentSolution, file);
+        if (doc is not null)
+            root = await doc.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false) as CompilationUnitSyntax;
+
         if (root is null)
         {
-            result.Lines = read.Content.Replace("\r\n", "\n").Split('\n').ToList();
-            return result;
+            var tree = CSharpSyntaxTree.ParseText(read.Content, cancellationToken: cancellationToken);
+            root = await tree.GetRootAsync(cancellationToken).ConfigureAwait(false) as CompilationUnitSyntax;
+        }
+
+        if (root is null)
+        {
+            throw new VsmcpException(ErrorCodes.Unsupported,
+                $"Could not parse '{file}' as a C# compilation unit.");
         }
 
         // Usings + namespace header verbatim; types abbreviated; members signature-only with line markers.

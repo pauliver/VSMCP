@@ -126,6 +126,9 @@ internal sealed class PipeHost : IDisposable
             _jtf = jtf;
             _target = target;
             _activity = activity;
+            // Send full exception type + message + stack across the wire so the bridge sees the real
+            // failure instead of "An error occurred invoking 'X'". Required for #90/#95.
+            ExceptionStrategy = ExceptionProcessing.ISerializable;
         }
 
         protected override async ValueTask<JsonRpcMessage> DispatchRequestAsync(JsonRpcRequest request, TargetMethod targetMethod, CancellationToken cancellationToken)

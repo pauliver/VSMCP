@@ -29,9 +29,6 @@ internal sealed partial class RpcTarget
         if (string.IsNullOrEmpty(file)) throw new VsmcpException(ErrorCodes.NotFound, "file is required.");
         if (string.IsNullOrEmpty(symbolName)) throw new VsmcpException(ErrorCodes.NotFound, "symbolName is required.");
 
-        // Look at #include chain from the file, search each header for a declaration of `symbolName`.
-        var deps = await FileDependenciesAsync(file, cancellationToken).ConfigureAwait(false);
-        var dir = Path.GetDirectoryName(file)!;
         // Patterns: function decl `<retval> name(...)`, type alias `class name`, `struct name`, `typedef ... name`.
         var rx = new Regex(
             $@"\b(?:class|struct|enum)\s+{Regex.Escape(symbolName)}\b" +
@@ -40,34 +37,49 @@ internal sealed partial class RpcTarget
             $@"|\busing\s+{Regex.Escape(symbolName)}\s*=",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+        // Search the file itself first — the symbol may be declared in the queried header.
+        if (File.Exists(file))
+        {
+            var hit = SearchForDecl(file, rx);
+            if (hit is not null) return hit;
+        }
+
+        // Then walk #include chain.
+        var deps = await FileDependenciesAsync(file, cancellationToken).ConfigureAwait(false);
+        var dir = Path.GetDirectoryName(file)!;
         foreach (var inc in deps.Includes.Where(d => d.Type == "local"))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var hdrPath = Path.IsPathRooted(inc.File) ? inc.File : Path.Combine(dir, inc.File);
-            if (!File.Exists(hdrPath)) continue;
-            string[] lines;
-            try { lines = File.ReadAllLines(hdrPath); }
-            catch { continue; }
-            for (int i = 0; i < lines.Length; i++)
-            {
-                if (rx.IsMatch(lines[i]))
-                {
-                    return new HeaderLookupResult
-                    {
-                        Header = new CodeSpan
-                        {
-                            File = hdrPath,
-                            StartLine = i + 1,
-                            StartColumn = 1,
-                            EndLine = i + 1,
-                            EndColumn = lines[i].Length + 1,
-                        },
-                        Type = lines[i].Trim(),
-                    };
-                }
-            }
+            var hdrPath = Path.IsPathRooted(inc.File) ? inc.File : ResolveLocalInclude(dir, inc.File);
+            if (hdrPath is null || !File.Exists(hdrPath)) continue;
+            var hit = SearchForDecl(hdrPath, rx);
+            if (hit is not null) return hit;
         }
-        throw new VsmcpException(ErrorCodes.NotFound, $"Symbol '{symbolName}' not found in any include of '{file}'.");
+        throw new VsmcpException(ErrorCodes.NotFound, $"Symbol '{symbolName}' not found in '{file}' or any of its local #includes.");
+    }
+
+    private static HeaderLookupResult? SearchForDecl(string path, Regex rx)
+    {
+        string[] lines;
+        try { lines = File.ReadAllLines(path); }
+        catch { return null; }
+        for (int i = 0; i < lines.Length; i++)
+        {
+            if (!rx.IsMatch(lines[i])) continue;
+            return new HeaderLookupResult
+            {
+                Header = new CodeSpan
+                {
+                    File = path,
+                    StartLine = i + 1,
+                    StartColumn = 1,
+                    EndLine = i + 1,
+                    EndColumn = lines[i].Length + 1,
+                },
+                Type = lines[i].Trim(),
+            };
+        }
+        return null;
     }
 
     public async Task<IncludeChainResult> CppIncludeChainAsync(
@@ -93,20 +105,66 @@ internal sealed partial class RpcTarget
         foreach (var inc in deps.Includes)
         {
             ct.ThrowIfCancellationRequested();
-            var hdrPath = inc.Type == "local" && !Path.IsPathRooted(inc.File)
-                ? Path.Combine(dir, inc.File)
-                : inc.File;
+
+            string hdrPath;
+            bool resolved;
+            if (Path.IsPathRooted(inc.File))
+            {
+                hdrPath = inc.File;
+                resolved = File.Exists(hdrPath);
+            }
+            else if (inc.Type == "local")
+            {
+                var resolvedPath = ResolveLocalInclude(dir, inc.File);
+                resolved = resolvedPath is not null;
+                hdrPath = resolvedPath ?? inc.File;
+            }
+            else
+            {
+                // System (<>) includes: we have no SDK include-roots wired up; report unresolved.
+                hdrPath = inc.File;
+                resolved = false;
+            }
 
             result.Chain.Add(new IncludeChainItem
             {
                 File = hdrPath,
                 Line = inc.Line,
                 Type = inc.Type,
+                Resolved = resolved,
             });
 
-            if (inc.Type == "local" && File.Exists(hdrPath))
+            if (resolved && inc.Type == "local")
                 await WalkIncludesAsync(hdrPath, visited, result, ct).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Resolve a local-quoted include. Tries the source-file directory first, then walks up
+    /// the directory tree treating each ancestor as a potential include root. Returns null
+    /// when no candidate exists on disk.
+    /// </summary>
+    private static string? ResolveLocalInclude(string sourceDir, string includeText)
+    {
+        var rel = includeText.Replace('/', Path.DirectorySeparatorChar);
+
+        // 1. Adjacent / dotted-relative to the source file.
+        var direct = Path.GetFullPath(Path.Combine(sourceDir, rel));
+        if (File.Exists(direct)) return direct;
+
+        // 2. Walk up looking for an include-root ancestor (the typical "project root contains
+        //    Engine/Core/Foo.hpp and source uses #include \"Engine/Core/Foo.hpp\"" pattern).
+        var probe = sourceDir;
+        for (int i = 0; i < 16 && !string.IsNullOrEmpty(probe); i++)
+        {
+            var candidate = Path.GetFullPath(Path.Combine(probe, rel));
+            if (File.Exists(candidate)) return candidate;
+            var parent = Path.GetDirectoryName(probe);
+            if (string.IsNullOrEmpty(parent) || parent == probe) break;
+            probe = parent;
+        }
+
+        return null;
     }
 
     public async Task<MacroResult> CppMacroLookupAsync(

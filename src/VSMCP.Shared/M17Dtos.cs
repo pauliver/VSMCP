@@ -15,6 +15,11 @@ public sealed class IncludeChainItem
     public string File { get; set; } = "";
     public int Line { get; set; }
     public string Type { get; set; } = "";
+    /// <summary>
+    /// True when File is a real path on disk. False means resolution failed (no project
+    /// include roots were known); File then contains the literal include text from the source.
+    /// </summary>
+    public bool Resolved { get; set; }
 }
 
 public sealed class IncludeChainResult
