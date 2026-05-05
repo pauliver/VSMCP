@@ -65,6 +65,36 @@ internal static class Program
                     Console.Error.WriteLine($"[move-many] total={result.Total} moved={result.MovedCount} csprojEdits={result.CsprojEdits} skipped={result.SkippedCount}");
                     return 0;
                 }
+                case "move-methods":
+                {
+                    var jsonPath = args.LastOrDefault(a => !a.StartsWith("--") && a != "move-methods")
+                        ?? throw new InvalidOperationException("provide moves.json path");
+                    var json = File.ReadAllText(jsonPath);
+                    var moves = JsonSerializer.Deserialize<List<MoveMethodRequest>>(json,
+                                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                                ?? throw new InvalidOperationException("empty moves list");
+
+                    Console.Error.WriteLine($"[move-methods] count={moves.Count}");
+                    int ok = 0, fail = 0;
+                    foreach (var m in moves)
+                    {
+                        try
+                        {
+                            var r = await conn.Proxy.EditMoveMethodAsync(m.File, m.MethodName, m.ContainerType, m.NewFile, m.AppendIfExists)
+                                              .ConfigureAwait(false);
+                            if (r.Success) { ok++; Console.Error.WriteLine($"  ok    {m.MethodName,-32} -> {m.NewFile}"); }
+                            else if (r.Conflict) { fail++; Console.Error.WriteLine($"  CONFL {m.MethodName,-32} -> {m.NewFile}  (set appendIfExists)"); }
+                            else { fail++; Console.Error.WriteLine($"  FAIL  {m.MethodName,-32} -> {m.NewFile}  (member not found in container)"); }
+                        }
+                        catch (Exception ex)
+                        {
+                            fail++;
+                            Console.Error.WriteLine($"  THROW {m.MethodName,-32} -> {m.NewFile}  ({ex.GetType().Name}: {ex.Message})");
+                        }
+                    }
+                    Console.Error.WriteLine($"[move-methods] ok={ok} fail={fail}");
+                    return fail == 0 ? 0 : 1;
+                }
                 case "move-types":
                 {
                     var jsonPath = args.LastOrDefault(a => !a.StartsWith("--") && a != "move-types")
@@ -114,6 +144,7 @@ internal static class Program
         Console.WriteLine("vsmcp-rearch status");
         Console.WriteLine("vsmcp-rearch move-many [--no-dry-run] [--no-update-project] <mapping.json>");
         Console.WriteLine("vsmcp-rearch move-types <moves.json>   # [{File, TypeName, NewFile, NewNamespace?, AppendIfExists?}]");
+        Console.WriteLine("vsmcp-rearch move-methods <moves.json> # [{File, MethodName, NewFile, ContainerType?, AppendIfExists?}]");
     }
 
     public sealed class MoveTypeRequest
@@ -122,6 +153,15 @@ internal static class Program
         public string TypeName { get; set; } = "";
         public string? NewFile { get; set; }
         public string? NewNamespace { get; set; }
+        public bool AppendIfExists { get; set; }
+    }
+
+    public sealed class MoveMethodRequest
+    {
+        public string File { get; set; } = "";
+        public string MethodName { get; set; } = "";
+        public string? ContainerType { get; set; }
+        public string? NewFile { get; set; }
         public bool AppendIfExists { get; set; }
     }
 

@@ -176,6 +176,8 @@ public interface IVsmcpRpc
         bool openInEditor, CancellationToken cancellationToken = default);
     Task<MoveTypeResult> EditMoveTypeAsync(string file, string typeName, string? newNamespace, string? newFile,
         bool appendIfExists, CancellationToken cancellationToken = default);
+    Task<MoveTypeResult> EditMoveMethodAsync(string file, string methodName, string? containerType, string? newFile,
+        bool appendIfExists, CancellationToken cancellationToken = default);
 
     // -------- M16: Navigation Context --------
     Task<NavigateResult> EditorNavigateToAsync(string file, int? line, int? column, bool openInEditor,

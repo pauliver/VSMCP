@@ -101,6 +101,20 @@ public sealed partial class VsmcpTools
         var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         return await proxy.EditMoveTypeAsync(file, typeName, newNamespace, newFile, appendIfExists, ct).ConfigureAwait(false);
     }
+
+    [McpServerTool(Name = "edit.move_method")]
+    [Description("Move a method (or any single named member of a partial-class file — including private helpers, properties, fields, nested types) into another partial-class file. The destination's partial container is auto-synthesized with matching modifiers/identifier/type-params on first move; subsequent moves into the same destination need appendIfExists=true.")]
+    public async Task<MoveTypeResult> EditMoveMethod(
+        [Description("Absolute path to the source file containing the member.")] string file,
+        [Description("Member name (method name, property name, field variable name, etc.).")] string methodName,
+        [Description("Container type identifier (e.g. 'RpcTarget'). Optional — defaults to the first type declaration in the file.")] string? containerType = null,
+        [Description("Target file path (required — no auto-naming for methods).")] string? newFile = null,
+        [Description("When true and the target file already exists with a matching partial container, append the member there. When false (default), an existing target returns Conflict=true.")] bool appendIfExists = false,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.EditMoveMethodAsync(file, methodName, containerType, newFile, appendIfExists, ct).ConfigureAwait(false);
+    }
 }
 
 public sealed class ReplaceAllResult
