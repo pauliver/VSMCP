@@ -132,6 +132,7 @@
     <Compile Include="CppAnalyzerHost.cs" />
     <Compile Include="RpcTarget.CppSemantic.cs" />
     <Compile Include="RpcTarget.CppEdit.cs" />
+    <Compile Include="RpcTarget.CppMore.cs" />
   </ItemGroup>
 
   <ItemGroup>

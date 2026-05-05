@@ -137,6 +137,74 @@ public sealed class CppInvestigateResult
     public int TotalCalls { get; set; }
 }
 
+public sealed class CppOutlineEntry
+{
+    public string File { get; set; } = "";
+    public CppOutlineResult? Outline { get; set; }
+    public string? Error { get; set; }
+}
+
+public sealed class CppOutlineManyResult
+{
+    public List<CppOutlineEntry> Entries { get; set; } = new();
+}
+
+public sealed class CppInheritanceNode
+{
+    public string Name { get; set; } = "";
+    public string? Access { get; set; }      // public/private/protected as declared
+    public string? File { get; set; }
+    public int Line { get; set; }
+    public List<CppInheritanceNode> Bases { get; set; } = new();
+}
+
+public sealed class CppInheritanceResult
+{
+    public string ClassName { get; set; } = "";
+    public CppInheritanceNode? Tree { get; set; }
+}
+
+public sealed class CppGenerateEqualityResult
+{
+    public string File { get; set; } = "";
+    public string ClassName { get; set; } = "";
+    public bool Inserted { get; set; }
+    public int InsertedAtLine { get; set; }
+    public string Code { get; set; } = "";
+    public int FieldsCompared { get; set; }
+}
+
+public sealed class CppImplementInterfaceResult
+{
+    public string DerivedFile { get; set; } = "";
+    public string DerivedClass { get; set; } = "";
+    public string BaseClass { get; set; } = "";
+    public List<string> InsertedMethods { get; set; } = new();
+    public List<string> SkippedAlreadyOverridden { get; set; } = new();
+    public int InsertedAtLine { get; set; }
+    public string Code { get; set; } = "";
+}
+
+public sealed class CppScaffoldFileResult
+{
+    public string HeaderPath { get; set; } = "";
+    public string? CppPath { get; set; }
+    public bool Created { get; set; }
+}
+
+public sealed class CppIncludeSuggestion
+{
+    public string Header { get; set; } = "";
+    public string SymbolKind { get; set; } = "";
+    public int Line { get; set; }
+}
+
+public sealed class CppSuggestIncludesResult
+{
+    public string Symbol { get; set; } = "";
+    public List<CppIncludeSuggestion> Suggestions { get; set; } = new();
+}
+
 // C++ Extensions
 
 public sealed class HeaderLookupResult
