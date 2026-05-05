@@ -84,12 +84,20 @@ Picking the right read tool saves order-of-magnitude tokens. Match granularity t
 | Top-level structure of a C# file        | `file_outline(path)` — types + members, no bodies         |
 | Top-level structure of a C/C++ file     | `cpp_outline(path)` — namespaces, types, functions; tokenizer-based |
 | Members of a named C++ class            | `cpp_class_members(file, className)`                       |
+| Read a C++ member's body                | `cpp_read_member(file, className, memberName)` — outline + brace-walk |
 | All classes/structs in the solution     | `cpp_classes(namePattern?, kinds?)` — solution-wide aggregation |
 | Find a C++ symbol by name               | `cpp_find_symbol(name, kind?)` — returns Container chain   |
+| C++ symbol summary                      | `cpp_symbol_summary(symbol)` — aggregates find_symbol + quick_info |
 | Type / decl text at a C++ cursor        | `cpp_quick_info(file, line, col)` — libclang-backed        |
-| References to a C++ symbol              | `cpp_find_references(file, line, col)` — libclang, single-TU v1 |
+| References (single-TU)                  | `cpp_find_references(file, line, col)` — libclang, fast    |
+| References (whole solution)             | `cpp_find_references_solution(file, line, col)` — walks every TU |
 | Jump to C++ definition                  | `cpp_goto_definition(file, line, col)` — libclang-backed   |
 | Real C++ compile errors / warnings      | `cpp_diagnostics(file)` — libclang diagnostics             |
+| Rename a C++ symbol                     | `cpp_rename(file, line, col, newName)` — single-TU rewrite |
+| Replace a C++ method body               | `cpp_replace_member(file, className, memberName, newCode)` |
+| Generate a C++ constructor              | `cpp_generate_constructor(file, className, memberNames?)`  |
+| Override a virtual member               | `cpp_override_member(file, className, methodName, retType, params)` |
+| Sort/dedupe/group C++ includes          | `cpp_organize_includes(file)`                              |
 | Open Folder mode (no .sln)              | `project.load_workspace_folder()` once, then Roslyn tools work |
 | Just the members of one class           | `file_members(path, className)`                           |
 | One method's body                       | `code_read_member(path, className, memberName)`           |
@@ -191,7 +199,7 @@ For dumps with no managed symbols, ask the user for a symbol path before walking
 - **Stale buffers**: `file_read` reads the live editor buffer if open (may be dirty). The result includes `hasUnsavedChanges` — check it.
 - **Builds that never finish**: `build_wait` has a default timeout; if it returns "running", call `build_status` periodically rather than waiting forever. `build_cancel` if needed.
 - **Side-effecting tools** (`eval_expression` with effects, `memory_write`, `dump.dbgeng`) may be gated by user config (`allowSideEffects`, `allowDbgEng`). Check the error if a call is rejected.
-- **C++ vs C#**: edit tools (rename / move_type / move_method / replace_member) are Roslyn-only — C# only. For C++ discovery use `cpp_*` syntactic tools (outline / classes / find_symbol / class_members / header_lookup / include_chain / macro_lookup / preprocess). For C++ **semantic** queries (real libclang parse): `cpp_diagnostics`, `cpp_quick_info`, `cpp_find_references`, `cpp_goto_definition`, `cpp_invalidate`. The semantic tier spawns an out-of-process libclang sidecar on first call (cold-start ~1-3s); subsequent calls warm. v1 limitations: single-TU find_references (no cross-TU yet), parses on-disk content only (dirty editor buffers ignored — call `cpp_invalidate` after a save).
+- **C++ vs C# parity**: as of 2026-05-05 C++ has near-feature-parity with C#. **Discovery**: `cpp_outline`, `cpp_classes`, `cpp_find_symbol`, `cpp_class_members`, `cpp_read_member`, `cpp_symbol_summary`, `cpp_header_lookup`, `cpp_include_chain`, `cpp_macro_lookup`, `cpp_preprocess`. **Semantic** (libclang-backed, out-of-process sidecar): `cpp_diagnostics`, `cpp_quick_info`, `cpp_find_references` (single-TU fast / `_solution` whole-solution slow-first-call), `cpp_goto_definition`, `cpp_invalidate`. **Mutation**: `cpp_rename` (single-TU), `cpp_replace_member`, `cpp_generate_constructor`, `cpp_override_member`, `cpp_organize_includes`. **What's still C# only**: `code_investigate` (call-tree analysis), `edit_move_type`/`edit_move_method` (those need C++ implementations of the same shape — coming as v2). **Cold-start**: the libclang sidecar spawns on first cpp_* semantic call (~1-3s); subsequent calls warm. Always `cpp_invalidate(file)` after editor saves, since the analyzer parses on-disk content.
 - **Open Folder mode**: VS without a .sln only sees `<MiscFiles>`. Run `project.load_workspace_folder()` at the start of the session — it scans the folder for .csproj files and loads them into an in-process sidecar workspace so symbol lookups, file outlines, and class searches work. Edit tools (`edit_rename`, `edit_move_type`, etc.) still need a real .sln.
 - **Don't disable follow mode silently**. If you turn it off mid-session, the user may stop seeing your work in the IDE. Tell them.
 
