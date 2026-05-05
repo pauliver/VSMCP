@@ -290,6 +290,7 @@ internal sealed partial class RpcTarget
 
     public async Task<MoveTypeResult> EditMoveTypeAsync(
         string file, string typeName, string? newNamespace, string? newFile,
+        bool appendIfExists,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(file)) throw new VsmcpException(ErrorCodes.NotFound, "file is required.");
@@ -307,36 +308,72 @@ internal sealed partial class RpcTarget
         if (typeDecl is null) return new MoveTypeResult { Success = false };
 
         var targetPath = newFile ?? Path.Combine(Path.GetDirectoryName(file)!, typeName + ".cs");
-        if (File.Exists(targetPath))
+        bool destExists = File.Exists(targetPath);
+        if (destExists && !appendIfExists)
             return new MoveTypeResult { Success = false, Conflict = true };
 
-        // Build new file content: usings from source + namespace + type.
         var srcRoot = root as CompilationUnitSyntax;
-        var usings = srcRoot?.Usings ?? default;
+        var srcUsings = srcRoot?.Usings ?? default;
 
         BaseNamespaceDeclarationSyntax? srcNamespace = typeDecl.AncestorsAndSelf().OfType<BaseNamespaceDeclarationSyntax>().FirstOrDefault();
         var nsName = newNamespace ?? srcNamespace?.Name.ToString();
 
-        SyntaxNode newFileRoot;
-        if (!string.IsNullOrEmpty(nsName))
+        await _jtf.SwitchToMainThreadAsync(cancellationToken);
+
+        if (destExists)
         {
-            var ns = SyntaxFactory.NamespaceDeclaration(SyntaxFactory.ParseName(nsName!))
-                .WithMembers(SyntaxFactory.List<MemberDeclarationSyntax>(new[] { (MemberDeclarationSyntax)typeDecl.WithoutLeadingTrivia() }));
-            newFileRoot = SyntaxFactory.CompilationUnit()
-                .WithUsings(usings)
-                .WithMembers(SyntaxFactory.SingletonList<MemberDeclarationSyntax>(ns))
-                .NormalizeWhitespace();
+            // Append path: parse the existing destination, add the type into the matching
+            // namespace (or top-level if none). Preserve existing usings + content.
+            var existingText = File.ReadAllText(targetPath);
+            var existingTree = CSharpSyntaxTree.ParseText(existingText, cancellationToken: cancellationToken);
+            var existingRoot = await existingTree.GetRootAsync(cancellationToken).ConfigureAwait(false) as CompilationUnitSyntax
+                               ?? throw new VsmcpException(ErrorCodes.InteropFault, $"Could not parse '{targetPath}' as a C# compilation unit.");
+
+            var typeMember = (MemberDeclarationSyntax)typeDecl.WithoutLeadingTrivia();
+
+            CompilationUnitSyntax updatedRoot;
+            var existingNs = existingRoot.Members.OfType<BaseNamespaceDeclarationSyntax>()
+                .FirstOrDefault(n => string.IsNullOrEmpty(nsName) || n.Name.ToString() == nsName);
+
+            if (existingNs is not null)
+            {
+                BaseNamespaceDeclarationSyntax newNs = existingNs switch
+                {
+                    NamespaceDeclarationSyntax nds => nds.AddMembers(typeMember),
+                    FileScopedNamespaceDeclarationSyntax fns => fns.AddMembers(typeMember),
+                    _ => existingNs,
+                };
+                updatedRoot = existingRoot.ReplaceNode(existingNs, newNs);
+            }
+            else
+            {
+                updatedRoot = existingRoot.AddMembers(typeMember);
+            }
+
+            File.WriteAllText(targetPath, updatedRoot.ToFullString());
         }
         else
         {
-            newFileRoot = SyntaxFactory.CompilationUnit()
-                .WithUsings(usings)
-                .WithMembers(SyntaxFactory.SingletonList<MemberDeclarationSyntax>((MemberDeclarationSyntax)typeDecl.WithoutLeadingTrivia()))
-                .NormalizeWhitespace();
+            // Create path: usings from source + namespace + type.
+            SyntaxNode newFileRoot;
+            if (!string.IsNullOrEmpty(nsName))
+            {
+                var ns = SyntaxFactory.NamespaceDeclaration(SyntaxFactory.ParseName(nsName!))
+                    .WithMembers(SyntaxFactory.List<MemberDeclarationSyntax>(new[] { (MemberDeclarationSyntax)typeDecl.WithoutLeadingTrivia() }));
+                newFileRoot = SyntaxFactory.CompilationUnit()
+                    .WithUsings(srcUsings)
+                    .WithMembers(SyntaxFactory.SingletonList<MemberDeclarationSyntax>(ns))
+                    .NormalizeWhitespace();
+            }
+            else
+            {
+                newFileRoot = SyntaxFactory.CompilationUnit()
+                    .WithUsings(srcUsings)
+                    .WithMembers(SyntaxFactory.SingletonList<MemberDeclarationSyntax>((MemberDeclarationSyntax)typeDecl.WithoutLeadingTrivia()))
+                    .NormalizeWhitespace();
+            }
+            File.WriteAllText(targetPath, newFileRoot.ToFullString());
         }
-
-        await _jtf.SwitchToMainThreadAsync(cancellationToken);
-        File.WriteAllText(targetPath, newFileRoot.ToFullString());
 
         // Remove the type from the original file.
         var newSourceRoot = root.RemoveNode(typeDecl, SyntaxRemoveOptions.KeepLeadingTrivia)!;

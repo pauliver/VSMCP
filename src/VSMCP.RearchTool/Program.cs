@@ -65,6 +65,36 @@ internal static class Program
                     Console.Error.WriteLine($"[move-many] total={result.Total} moved={result.MovedCount} csprojEdits={result.CsprojEdits} skipped={result.SkippedCount}");
                     return 0;
                 }
+                case "move-types":
+                {
+                    var jsonPath = args.LastOrDefault(a => !a.StartsWith("--") && a != "move-types")
+                        ?? throw new InvalidOperationException("provide moves.json path");
+                    var json = File.ReadAllText(jsonPath);
+                    var moves = JsonSerializer.Deserialize<List<MoveTypeRequest>>(json,
+                                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                                ?? throw new InvalidOperationException("empty moves list");
+
+                    Console.Error.WriteLine($"[move-types] count={moves.Count}");
+                    int ok = 0, fail = 0;
+                    foreach (var m in moves)
+                    {
+                        try
+                        {
+                            var r = await conn.Proxy.EditMoveTypeAsync(m.File, m.TypeName, m.NewNamespace, m.NewFile, m.AppendIfExists)
+                                              .ConfigureAwait(false);
+                            if (r.Success) { ok++; Console.Error.WriteLine($"  ok    {m.TypeName,-32} -> {m.NewFile}"); }
+                            else if (r.Conflict) { fail++; Console.Error.WriteLine($"  CONFL {m.TypeName,-32} -> {m.NewFile}  (set appendIfExists)"); }
+                            else { fail++; Console.Error.WriteLine($"  FAIL  {m.TypeName,-32} -> {m.NewFile}  (type not found in source)"); }
+                        }
+                        catch (Exception ex)
+                        {
+                            fail++;
+                            Console.Error.WriteLine($"  THROW {m.TypeName,-32} -> {m.NewFile}  ({ex.GetType().Name}: {ex.Message})");
+                        }
+                    }
+                    Console.Error.WriteLine($"[move-types] ok={ok} fail={fail}");
+                    return fail == 0 ? 0 : 1;
+                }
                 default:
                     Console.Error.WriteLine($"unknown command: {cmd}");
                     PrintUsage();
@@ -83,6 +113,16 @@ internal static class Program
         Console.WriteLine("vsmcp-rearch ping");
         Console.WriteLine("vsmcp-rearch status");
         Console.WriteLine("vsmcp-rearch move-many [--no-dry-run] [--no-update-project] <mapping.json>");
+        Console.WriteLine("vsmcp-rearch move-types <moves.json>   # [{File, TypeName, NewFile, NewNamespace?, AppendIfExists?}]");
+    }
+
+    public sealed class MoveTypeRequest
+    {
+        public string File { get; set; } = "";
+        public string TypeName { get; set; } = "";
+        public string? NewFile { get; set; }
+        public string? NewNamespace { get; set; }
+        public bool AppendIfExists { get; set; }
     }
 
     private static async Task<Connection> ConnectAsync()

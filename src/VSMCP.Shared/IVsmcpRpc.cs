@@ -175,7 +175,7 @@ public interface IVsmcpRpc
     Task<ReplaceMemberResult> EditReplaceMemberAsync(string file, string className, string memberName, string newText,
         bool openInEditor, CancellationToken cancellationToken = default);
     Task<MoveTypeResult> EditMoveTypeAsync(string file, string typeName, string? newNamespace, string? newFile,
-        CancellationToken cancellationToken = default);
+        bool appendIfExists, CancellationToken cancellationToken = default);
 
     // -------- M16: Navigation Context --------
     Task<NavigateResult> EditorNavigateToAsync(string file, int? line, int? column, bool openInEditor,

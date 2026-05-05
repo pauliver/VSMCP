@@ -89,16 +89,17 @@ public sealed partial class VsmcpTools
     }
 
     [McpServerTool(Name = "edit.move_type")]
-    [Description("Move a type declaration into its own file. Optionally specify a new namespace. Source usings are preserved on the new file. Returns Conflict=true if the target file already exists.")]
+    [Description("Move a type declaration into another file. Source usings preserved on a newly-created file. When the target file already exists, set appendIfExists=true to add the type into the existing file's matching namespace instead of failing with Conflict=true.")]
     public async Task<MoveTypeResult> EditMoveType(
         [Description("Absolute path to the source file containing the type.")] string file,
         [Description("Type name (simple identifier).")] string typeName,
         [Description("New namespace (defaults to source namespace).")] string? newNamespace = null,
         [Description("Target file path (default: <typeName>.cs in the source directory).")] string? newFile = null,
+        [Description("When true and the target file already exists, append the type into its matching namespace. When false (default), an existing target returns Conflict=true.")] bool appendIfExists = false,
         CancellationToken ct = default)
     {
         var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
-        return await proxy.EditMoveTypeAsync(file, typeName, newNamespace, newFile, ct).ConfigureAwait(false);
+        return await proxy.EditMoveTypeAsync(file, typeName, newNamespace, newFile, appendIfExists, ct).ConfigureAwait(false);
     }
 }
 
