@@ -240,12 +240,21 @@ internal sealed partial class RpcTarget
 
         // Pre-process: collapse multi-line virtual declarations into single lines so the
         // regex doesn't miss `virtual ret\n    method(args) const = 0;` patterns. Joins
-        // until we see `;` or `{` outside template-bracket nesting.
+        // until we see `;` or `{` outside template-bracket nesting. Access-specifier
+        // labels (public:/private:/protected:) flush the buffer before they're appended
+        // so they don't bleed into the next virtual's collapsed form (was bug #115).
         var collapsed = new List<string>();
         var sbLine = new StringBuilder();
         int templateDepth = 0;
+        var accessRx = new Regex(@"^\s*(?:public|private|protected)\s*:", RegexOptions.Compiled);
         for (int i = baseStart + 1; i < baseEnd && i < baseLines.Length; i++)
         {
+            // Access-specifier line on its own: flush whatever is pending and discard the label.
+            if (accessRx.IsMatch(baseLines[i]) && baseLines[i].Trim().EndsWith(":"))
+            {
+                if (sbLine.Length > 0) { collapsed.Add(sbLine.ToString()); sbLine.Clear(); }
+                continue;
+            }
             foreach (var ch in baseLines[i])
             {
                 if (ch == '<') templateDepth++;
@@ -263,9 +272,11 @@ internal sealed partial class RpcTarget
         if (sbLine.Length > 0) collapsed.Add(sbLine.ToString());
 
         // Allow multiple trailing modifiers (const, noexcept, override, final, throw(...))
-        // before `= 0` or `;`. Also allow ref-qualifier `&` / `&&`.
+        // before `= 0` or `;`. Also allow ref-qualifier `&` / `&&`. Use \b instead of `^`
+        // so `virtual` can appear after stray prefix tokens that the access-specifier
+        // strip didn't catch (e.g. inline access labels).
         var virtualRx = new Regex(
-            @"^\s*virtual\s+(?<sig>(?<ret>[\w:<>,\s\*\&]+?)\s+(?<name>[A-Za-z_]\w*)\s*\((?<params>[^)]*)\)" +
+            @"\bvirtual\s+(?<sig>(?<ret>[\w:<>,\s\*\&]+?)\s+(?<name>[A-Za-z_]\w*)\s*\((?<params>[^)]*)\)" +
             @"\s*(?:&{1,2})?(?:\s+(?:const|noexcept|override|final|throw\s*\([^)]*\)))*)" +
             @"\s*(?:=\s*0)?\s*;",
             RegexOptions.Compiled);

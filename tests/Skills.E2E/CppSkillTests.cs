@@ -289,9 +289,6 @@ public sealed class CppSkillTests : IDisposable
     public async Task CppSetUnsavedBuffer_overrides_disk_for_diagnostics()
     {
         Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
-        // Currently failing — see issue #115. Dirty-buffer override doesn't surface
-        // diagnostics from in-memory content. Re-enable when fixed.
-        Skip.If(true, "Tracked as bug #115; re-enable when CppSetUnsavedBufferAsync correctly drives diagnostics.");
         var rpc = await _f.ConnectAsync();
 
         // Arrange: a small disk file with a known-good signature.
@@ -362,9 +359,6 @@ public sealed class CppSkillTests : IDisposable
     public async Task CppImplementInterface_handles_templated_base_via_strip()
     {
         Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
-        // Currently failing — see issue #116. Templated bases still don't get virtuals
-        // inserted even with the regex/strip improvements. Re-enable when fixed.
-        Skip.If(true, "Tracked as bug #116; re-enable when cpp_implement_interface handles templated bases.");
         var rpc = await _f.ConnectAsync();
         await rpc.VsSetAutoFocusAsync(false);
 

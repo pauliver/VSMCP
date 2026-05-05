@@ -480,10 +480,13 @@ internal sealed class CppAnalysis : IDisposable
             }
 
             var unsavedSpan = unsavedArr is null ? ReadOnlySpan<CXUnsavedFile>.Empty : unsavedArr.AsSpan();
+            // Note: SkipFunctionBodies is intentionally NOT set here. Diagnostic errors and
+            // call-site references live INSIDE function bodies; skipping bodies makes the
+            // analyzer return false-clean diagnostics for syntax errors in dirty buffers
+            // (was bug #116). The perf cost is real but correctness wins.
             var unit = CXTranslationUnit.Parse(_index, full, args, unsavedSpan,
                 CXTranslationUnit_Flags.CXTranslationUnit_DetailedPreprocessingRecord
-                | CXTranslationUnit_Flags.CXTranslationUnit_KeepGoing
-                | CXTranslationUnit_Flags.CXTranslationUnit_SkipFunctionBodies);
+                | CXTranslationUnit_Flags.CXTranslationUnit_KeepGoing);
 
             var cached = new CachedTu(full, unit);
             lock (_lock)
