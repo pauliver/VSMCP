@@ -21,7 +21,10 @@ namespace VSMCP.CppAnalyzer;
 internal sealed class CppAnalysis : IDisposable
 {
     private readonly CXIndex _index;
-    private readonly Dictionary<string, CachedTu> _tus = new(StringComparer.OrdinalIgnoreCase);
+    // LRU cache: dict for O(1) lookup, linked list for O(1) reorder. Most-recently-used
+    // entries are at the head; eviction takes from the tail.
+    private readonly Dictionary<string, LinkedListNode<CachedTu>> _tus = new(StringComparer.OrdinalIgnoreCase);
+    private readonly LinkedList<CachedTu> _lru = new();
     private readonly object _lock = new();
     private const int MaxCachedTus = 50;
 
@@ -216,9 +219,10 @@ internal sealed class CppAnalysis : IDisposable
         var full = Path.GetFullPath(file);
         lock (_lock)
         {
-            if (_tus.TryGetValue(full, out var cached))
+            if (_tus.TryGetValue(full, out var node))
             {
-                cached.Tu.Dispose();
+                node.Value.Tu.Dispose();
+                _lru.Remove(node);
                 _tus.Remove(full);
             }
         }
@@ -228,8 +232,9 @@ internal sealed class CppAnalysis : IDisposable
     {
         lock (_lock)
         {
-            foreach (var c in _tus.Values) c.Tu.Dispose();
+            foreach (var node in _tus.Values) node.Value.Tu.Dispose();
             _tus.Clear();
+            _lru.Clear();
         }
         _index.Dispose();
     }
@@ -296,24 +301,36 @@ internal sealed class CppAnalysis : IDisposable
     private TuLease AcquireTu(string file, string[]? extraIncludes, string[]? extraDefines)
     {
         var full = Path.GetFullPath(file);
-        CachedTu? cached;
         lock (_lock)
         {
-            _tus.TryGetValue(full, out cached);
+            if (_tus.TryGetValue(full, out var node))
+            {
+                // Cache hit — bump to MRU and return.
+                _lru.Remove(node);
+                _lru.AddFirst(node);
+                return new TuLease(node.Value);
+            }
         }
-        if (cached is not null) return new TuLease(cached);
 
         var args = BuildClangArgs(full, extraIncludes, extraDefines);
         var unit = CXTranslationUnit.Parse(_index, full, args, ReadOnlySpan<CXUnsavedFile>.Empty,
             CXTranslationUnit_Flags.CXTranslationUnit_DetailedPreprocessingRecord
             | CXTranslationUnit_Flags.CXTranslationUnit_KeepGoing
             | CXTranslationUnit_Flags.CXTranslationUnit_SkipFunctionBodies);
-        // We disable SkipFunctionBodies above for find_references — but TODO: allow per-call override.
 
-        cached = new CachedTu(full, unit);
+        var cached = new CachedTu(full, unit);
         lock (_lock)
         {
-            _tus[full] = cached;
+            // Race: another caller may have populated the slot.
+            if (_tus.TryGetValue(full, out var existing))
+            {
+                cached.Tu.Dispose();
+                _lru.Remove(existing);
+                _lru.AddFirst(existing);
+                return new TuLease(existing.Value);
+            }
+            var node = _lru.AddFirst(cached);
+            _tus[full] = node;
             EvictIfNeeded();
         }
         return new TuLease(cached);
@@ -321,11 +338,14 @@ internal sealed class CppAnalysis : IDisposable
 
     private void EvictIfNeeded()
     {
-        if (_tus.Count <= MaxCachedTus) return;
-        // LRU isn't tracked in v1; drop the first entry (insertion order on .NET dictionary).
-        var key = _tus.Keys.First();
-        _tus[key].Tu.Dispose();
-        _tus.Remove(key);
+        while (_tus.Count > MaxCachedTus)
+        {
+            var lru = _lru.Last;
+            if (lru is null) break;
+            lru.Value.Tu.Dispose();
+            _tus.Remove(lru.Value.FilePath);
+            _lru.RemoveLast();
+        }
     }
 
     private static string[] BuildClangArgs(string file, string[]? extraIncludes, string[]? extraDefines)

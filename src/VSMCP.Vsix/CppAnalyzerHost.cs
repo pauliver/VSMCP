@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using StreamJsonRpc;
@@ -24,6 +25,10 @@ internal static class CppAnalyzerHost
     private static Process? s_analyzerProc;
     private static NamedPipeClientStream? s_stream;
     private static JsonRpc? s_rpc;
+    // Job Object holds spawned analyzer processes. When devenv.exe exits, the OS releases
+    // the job handle and force-kills every assigned process — even on a hard crash. The
+    // job is created lazily and reused across re-spawns so there's never an orphan.
+    private static JobObjectKillOnClose? s_killJob;
     private static string? s_logPath;
     private static readonly System.Collections.Generic.LinkedList<string> s_recentLog = new();
     private const int RecentLogCap = 200;
@@ -108,6 +113,28 @@ internal static class CppAnalyzerHost
         var proc = Process.Start(psi)
             ?? throw new VsmcpException(ErrorCodes.InteropFault, "Failed to start CppAnalyzer process.");
         s_analyzerProc = proc;
+
+        // Bind to a kill-on-close Job Object so the sidecar can't outlive devenv.exe,
+        // even on a hard crash where Dispose() never runs.
+        try
+        {
+            lock (s_lock) { s_killJob ??= new JobObjectKillOnClose(); }
+            if (s_killJob is { IsValid: true })
+            {
+                if (!s_killJob.Assign(proc))
+                    AppendLog($"[job] AssignProcessToJobObject failed (lastErr={Marshal.GetLastWin32Error()})");
+                else
+                    AppendLog("[job] sidecar bound to kill-on-close Job Object");
+            }
+            else
+            {
+                AppendLog("[job] CreateJobObject failed; sidecar may orphan if VS crashes");
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"[job] exception binding to job: {ex.Message}");
+        }
 
         // Background-pump stderr + stdout into the rolling log so failures aren't silent.
         proc.ErrorDataReceived += (_, e) => { if (e.Data is not null) AppendLog($"[stderr] {e.Data}"); };
