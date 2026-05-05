@@ -60,11 +60,17 @@ public sealed class VsConnection : IAsyncDisposable
         var stream = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await stream.ConnectAsync(5000, ct).ConfigureAwait(false);
 
-        var rpc = JsonRpc.Attach(stream);
+        // Construct manually so we can set ExceptionStrategy BEFORE StartListening — the
+        // Attach(stream) factory starts listening eagerly and locks configuration. Symptom
+        // of the bug: 'This cannot be done after listening has started' on every connect.
         // Match the VSIX side so deserialized RemoteInvocationExceptions carry the real
         // remote message + type instead of the generic "An error occurred invoking 'X'".
-        rpc.ExceptionStrategy = ExceptionProcessing.ISerializable;
+        var rpc = new JsonRpc(new HeaderDelimitedMessageHandler(stream))
+        {
+            ExceptionStrategy = ExceptionProcessing.ISerializable,
+        };
         var proxy = rpc.Attach<IVsmcpRpc>();
+        rpc.StartListening();
 
         var hs = await proxy.HandshakeAsync(ProtocolVersion.Major, ProtocolVersion.Minor, ct).ConfigureAwait(false);
         if (hs.ProtocolMajor != ProtocolVersion.Major)
