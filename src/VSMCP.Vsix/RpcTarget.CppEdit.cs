@@ -206,6 +206,58 @@ internal sealed partial class RpcTarget
         return result;
     }
 
+    public async Task<CppInvestigateResult> CppInvestigateAsync(string symbol, int maxRefs, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(symbol)) throw new VsmcpException(ErrorCodes.NotFound, "symbol is required.");
+        if (maxRefs <= 0) maxRefs = 50;
+
+        // 1. Find the symbol via the syntactic search.
+        var matches = await CppFindSymbolAsync(symbol, null, 1, cancellationToken).ConfigureAwait(false);
+        var first = matches.Matches.FirstOrDefault();
+        if (first is null)
+            throw new VsmcpException(ErrorCodes.NotFound, $"Symbol not found: {symbol}");
+
+        var result = new CppInvestigateResult { Symbol = first };
+        result.Stats.Kind = first.Kind;
+        if (first.Signature.IndexOf("virtual", StringComparison.Ordinal) >= 0) result.Stats.IsVirtual = true;
+        if (first.Signature.IndexOf("static", StringComparison.Ordinal) >= 0) result.Stats.IsStatic = true;
+        if (first.Signature.IndexOf("const", StringComparison.Ordinal) >= 0) result.Stats.IsConst = true;
+
+        // 2. Enrich with libclang quick-info (type + comment).
+        try
+        {
+            var qi = await CppQuickInfoAsync(first.File, first.Line, EstimateColumn(first), null, null, cancellationToken).ConfigureAwait(false);
+            result.QuickInfoType = qi.Type;
+            result.BriefComment = qi.BriefComment;
+            result.Stats.Type = qi.Type;
+        }
+        catch { /* enrichment failure is non-fatal */ }
+
+        // 3. Read the body via cpp_read_member when the symbol lives inside a class/struct.
+        if (!string.IsNullOrEmpty(first.Container) && (first.Kind == "method" || first.Kind == "function"))
+        {
+            try
+            {
+                var classNameSegment = first.Container!.Split(new[] { "::" }, StringSplitOptions.None).Last();
+                var rm = await CppReadMemberAsync(first.File, classNameSegment, first.Name, cancellationToken).ConfigureAwait(false);
+                result.Body = rm.Content;
+            }
+            catch { /* not a class member, fall through */ }
+        }
+
+        // 4. Solution-wide callers via cpp_find_references_solution.
+        try
+        {
+            var refs = await CppFindReferencesSolutionAsync(first.File, first.Line, EstimateColumn(first),
+                System.Math.Max(maxRefs, 50), null, null, cancellationToken).ConfigureAwait(false);
+            result.TotalCalls = refs.Total;
+            result.Calls = refs.Locations.Take(maxRefs).ToList();
+        }
+        catch { /* callers fetch is non-fatal */ }
+
+        return result;
+    }
+
     private static int EstimateColumn(CppFileDecl decl)
     {
         // CppOutlineParser doesn't track exact columns; approximate by finding the name on the line.

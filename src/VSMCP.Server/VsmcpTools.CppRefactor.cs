@@ -35,4 +35,15 @@ public sealed partial class VsmcpTools
         var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         return await proxy.CppRenameAsync(file, line, column, newName, ct).ConfigureAwait(false);
     }
+
+    [McpServerTool(Name = "cpp.investigate")]
+    [Description("Bundle of context for a named C/C++ symbol: declaration site + signature + libclang type info + brief comment + member body + cross-TU caller list. C++ analog of code_investigate. Composes cpp_find_symbol + cpp_quick_info + cpp_read_member + cpp_find_references_solution into one round trip.")]
+    public async Task<CppInvestigateResult> CppInvestigate(
+        [Description("Symbol name. First match wins.")] string symbol,
+        [Description("Cap on the number of caller locations (default 50).")] int maxRefs = 50,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.CppInvestigateAsync(symbol, maxRefs, ct).ConfigureAwait(false);
+    }
 }

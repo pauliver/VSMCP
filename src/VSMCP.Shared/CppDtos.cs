@@ -117,6 +117,26 @@ public sealed class CppOverrideMemberResult
     public string Code { get; set; } = "";
 }
 
+public sealed class CppInvestigateStats
+{
+    public string? Kind { get; set; }
+    public string? Type { get; set; }
+    public bool IsVirtual { get; set; }
+    public bool IsStatic { get; set; }
+    public bool IsConst { get; set; }
+}
+
+public sealed class CppInvestigateResult
+{
+    public CppFileDecl? Symbol { get; set; }
+    public string? QuickInfoType { get; set; }
+    public string? BriefComment { get; set; }
+    public string? Body { get; set; }
+    public CppInvestigateStats Stats { get; set; } = new();
+    public List<CppLocation> Calls { get; set; } = new();
+    public int TotalCalls { get; set; }
+}
+
 // C++ Extensions
 
 public sealed class HeaderLookupResult

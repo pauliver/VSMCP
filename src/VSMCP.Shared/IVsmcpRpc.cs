@@ -54,6 +54,7 @@ public interface IVsmcpRpc
     Task<CppOverrideMemberResult> CppOverrideMemberAsync(string file, string className, string methodName, string returnType, string parameters, CancellationToken cancellationToken = default);
     Task<CppLocationListResult> CppFindReferencesSolutionAsync(string file, int line, int column, int maxFiles, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default);
     Task<CppLocationListResult> CppRenameAsync(string file, int line, int column, string newName, CancellationToken cancellationToken = default);
+    Task<CppInvestigateResult> CppInvestigateAsync(string symbol, int maxRefs, CancellationToken cancellationToken = default);
 
     Task<ProjectLoadResult> ProjectLoadAsync(string csprojPath, CancellationToken cancellationToken = default);
     Task<ProjectLoadFolderResult> ProjectLoadWorkspaceFolderAsync(string? rootPath, CancellationToken cancellationToken = default);
