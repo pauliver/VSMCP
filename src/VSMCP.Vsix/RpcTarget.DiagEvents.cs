@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.Shell;
@@ -114,5 +116,40 @@ internal sealed partial class RpcTarget
         var collector = _package.DiagEvents
             ?? throw new VsmcpException(ErrorCodes.WrongState, "DiagEventCollector not initialised.");
         return collector.GetCpuTimeline(windowMs);
+    }
+public async Task<DiagEventsResult> DiagEventsListInternedAsync(
+        string? filter, int maxResults, CancellationToken cancellationToken = default)
+    {
+        await Task.Yield();
+        var collector = _package.DiagEvents
+            ?? throw new VsmcpException(ErrorCodes.WrongState, "DiagEventCollector not initialised.");
+
+        // Get the standard list, then build a shared frame table.
+        var raw = collector.GetEvents(filter, maxResults <= 0 ? 100 : maxResults);
+        var framesTable = new Dictionary<int, StackFrameInfo>();
+        var keyToId = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var e in raw.Events)
+        {
+            // Pull detail to access frames (DiagEvent doesn't carry them in list form).
+            var detail = collector.GetDetail(e.Id);
+            if (detail?.Frames is null) continue;
+            var frameIds = new List<int>();
+            foreach (var f in detail.Frames)
+            {
+                var key = $"{f.FunctionName}|{f.Module}|{f.File}|{f.Line}";
+                if (!keyToId.TryGetValue(key, out var id))
+                {
+                    id = framesTable.Count;
+                    keyToId[key] = id;
+                    framesTable[id] = f;
+                }
+                frameIds.Add(id);
+            }
+            e.FrameIds = frameIds;
+        }
+
+        raw.FramesTable = framesTable;
+        return raw;
     }
 }

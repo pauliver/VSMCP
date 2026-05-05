@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -255,6 +256,72 @@ internal sealed partial class RpcTarget
         }
         result.Total = result.Usages.Count;
         return result;
+    }
+public async Task<TextSearchResult> SearchTextCompactAsync(
+        string pattern, string? filePattern, string? projectId,
+        IReadOnlyList<string>? kinds, int maxResults, string? cursor,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(pattern))
+            throw new VsmcpException(ErrorCodes.NotFound, "pattern is required.");
+        if (maxResults <= 0) maxResults = 500;
+
+        // Decode the cursor: { "skip": N }.
+        int skip = 0;
+        if (!string.IsNullOrEmpty(cursor))
+        {
+            try
+            {
+                var raw = Encoding.UTF8.GetString(Convert.FromBase64String(cursor!));
+                var m = Regex.Match(raw, @"""skip""\s*:\s*(\d+)");
+                if (m.Success) skip = int.Parse(m.Groups[1].Value);
+            }
+            catch { skip = 0; }
+        }
+
+        // Drive the existing search; collect into a flat list, then page + intern.
+        var raw2 = await SearchTextAsync(pattern, filePattern, projectId, kinds, 50_000, cancellationToken)
+            .ConfigureAwait(false);
+        var all = raw2.Matches;
+
+        var page = all.Skip(skip).Take(maxResults).ToList();
+        var pathToId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var pathTable = new Dictionary<int, string>();
+        var compactMatches = new List<TextMatch>();
+        foreach (var m in page)
+        {
+            if (!pathToId.TryGetValue(m.File, out var id))
+            {
+                id = pathTable.Count;
+                pathToId[m.File] = id;
+                pathTable[id] = m.File;
+            }
+            // Replace File with the interned ID encoded as a string.
+            compactMatches.Add(new TextMatch
+            {
+                File = id.ToString(),
+                Line = m.Line,
+                Column = m.Column,
+                LineText = m.LineText,
+                ContextBefore = m.ContextBefore,
+                ContextAfter = m.ContextAfter,
+            });
+        }
+
+        var remaining = Math.Max(0, all.Count - (skip + page.Count));
+        string? nextCursor = remaining > 0
+            ? Convert.ToBase64String(Encoding.UTF8.GetBytes($"{{\"skip\":{skip + page.Count}}}"))
+            : null;
+
+        return new TextSearchResult
+        {
+            Matches = compactMatches,
+            Total = all.Count,
+            Truncated = remaining > 0,
+            PathTable = pathTable,
+            NextCursor = nextCursor,
+            RemainingCount = remaining,
+        };
     }
 }
 

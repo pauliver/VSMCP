@@ -124,7 +124,6 @@
     <Compile Include="RpcTarget.SymbolSummary.cs" />
     <Compile Include="RpcTarget.Investigate.cs" />
     <Compile Include="RpcTarget.SessionScope.cs" />
-    <Compile Include="RpcTarget.CtxCrosscut.cs" />
   </ItemGroup>
 
   <ItemGroup>

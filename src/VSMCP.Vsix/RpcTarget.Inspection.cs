@@ -332,4 +332,10 @@ internal sealed partial class RpcTarget
         try { return getter(); }
         catch { return default; }
     }
+public async Task<VariableListResult> FrameLocalsSummaryAsync(
+        int? threadId, int? frameIndex, CancellationToken cancellationToken = default)
+    {
+        // expandDepth=0 hits depth-1 only. Reuse existing FrameLocalsAsync; this is just a curated default.
+        return await FrameLocalsAsync(threadId, frameIndex, expandDepth: 0, cancellationToken).ConfigureAwait(false);
+    }
 }
