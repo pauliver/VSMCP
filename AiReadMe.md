@@ -40,6 +40,14 @@ mcp__vsmcp__vs_list_instances    # see all running VSMCP-enabled VS
 mcp__vsmcp__vs_select(processId) # bind future calls to one
 ```
 
+**If `vs_status` shows the workspace path is a directory (not a `.sln`)** — the user is in **VS Open Folder mode**. Roslyn-aware C# tools (`code_find_symbol`, `code_quick_info`, `file_outline` of project-y files, etc.) won't see anything until you load the workspace's csprojs. One call:
+
+```
+mcp__vsmcp__project_load_workspace_folder()    # scans for *.csproj and attaches them to a sidecar workspace
+```
+
+Skip this when a real `.sln` is loaded — the live VS workspace already covers it.
+
 ---
 
 ## Follow mode (a.k.a. teaching mode / AutoFocus)
@@ -200,6 +208,23 @@ For dumps with no managed symbols, ask the user for a symbol path before walking
 - Use `*_many` batch tools instead of N separate calls.
 - For symbol/member walks, `file_outline` → `code_read_member` beats `file_read` of the whole file.
 - Don't re-read a file you just edited unless you have a reason to verify; the edit tools tell you what changed.
+
+---
+
+## Destructive tools — review the diff before trusting
+
+These tools rewrite source. v1 implementations are best-effort; show the user the diff (or run them on a feature branch) before committing.
+
+| Tool | What can go wrong |
+|---|---|
+| `cpp_rename_solution` | bottom-up edit ordering across many files; one off-by-one column corrupts every TU |
+| `cpp_move_type` / `cpp_move_method` | text-based; `ClassName::` auto-injection may mismatch on templates / `noexcept` |
+| `cpp_implement_interface` | virtual-method regex; templated bases (`template<T> virtual void f() = 0`) likely break |
+| `cpp_generate_constructor` / `cpp_generate_equality` | field-extraction regex skips `(`-containing lines but `using F = std::function<…>` looks like a method |
+| `cpp_replace_member` / `edit_replace_member` | brace-walk finds the close brace but ignores raw strings and `R"(...)"` literals |
+| `edit_rename` | semantic, but cross-project refactors may surprise — show the user the changed-files list |
+
+For all of these: **call `editor_save_all` first** if there are dirty buffers, and `cpp_invalidate(file)` after each save so the libclang sidecar reparses.
 
 ---
 
