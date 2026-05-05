@@ -205,6 +205,38 @@ public sealed class CppSuggestIncludesResult
     public List<CppIncludeSuggestion> Suggestions { get; set; } = new();
 }
 
+public sealed class CppRenameSolutionResult
+{
+    public string OldName { get; set; } = "";
+    public string NewName { get; set; } = "";
+    public List<CppLocation> EditedLocations { get; set; } = new();
+    public int FilesEdited { get; set; }
+    public int TotalReferences { get; set; }
+}
+
+public sealed class CppMoveTypeResult
+{
+    public string SourceFile { get; set; } = "";
+    public string TargetFile { get; set; } = "";
+    public string TypeName { get; set; } = "";
+    public bool Moved { get; set; }
+    public int StartLine { get; set; }
+    public int EndLine { get; set; }
+    public string? Note { get; set; }
+}
+
+public sealed class CppMoveMethodResult
+{
+    public string SourceFile { get; set; } = "";
+    public string TargetFile { get; set; } = "";
+    public string ClassName { get; set; } = "";
+    public string MethodName { get; set; } = "";
+    public bool Moved { get; set; }
+    public int StartLine { get; set; }
+    public int EndLine { get; set; }
+    public string? Note { get; set; }
+}
+
 // C++ Extensions
 
 public sealed class HeaderLookupResult

@@ -133,6 +133,7 @@
     <Compile Include="RpcTarget.CppSemantic.cs" />
     <Compile Include="RpcTarget.CppEdit.cs" />
     <Compile Include="RpcTarget.CppMore.cs" />
+    <Compile Include="RpcTarget.CppRefactor.cs" />
   </ItemGroup>
 
   <ItemGroup>
