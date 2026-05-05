@@ -18,6 +18,9 @@ internal sealed partial class RpcTarget
         if (string.IsNullOrWhiteSpace(path))
             throw new VsmcpException(ErrorCodes.NotFound, "Path is required.");
 
+        if (Follow.Enabled)
+            await Follow.TouchAsync(path, range?.StartLine, range?.StartColumn, isEdit: false, cancellationToken).ConfigureAwait(false);
+
         var buffer = VsHelpers.TryGetOpenTextBuffer(_package, path);
         string content;
         bool openInEditor = buffer is not null;
@@ -77,6 +80,10 @@ internal sealed partial class RpcTarget
             throw new VsmcpException(ErrorCodes.NotFound, "Path is required.");
 
         content ??= string.Empty;
+
+        if (Follow.Enabled && File.Exists(path))
+            await Follow.TouchAsync(path, 1, 1, isEdit: true, cancellationToken).ConfigureAwait(false);
+
         var buffer = VsHelpers.TryGetOpenTextBuffer(_package, path);
         bool wentThroughEditor = false;
 
@@ -114,6 +121,10 @@ internal sealed partial class RpcTarget
             throw new VsmcpException(ErrorCodes.NotFound, "Range is required.");
 
         text ??= string.Empty;
+
+        if (Follow.Enabled)
+            await Follow.TouchAsync(path, range.StartLine, range.StartColumn, isEdit: true, cancellationToken).ConfigureAwait(false);
+
         var buffer = VsHelpers.TryGetOpenTextBuffer(_package, path);
         bool wentThroughEditor = false;
 
@@ -149,6 +160,21 @@ internal sealed partial class RpcTarget
     }
 
     public async Task EditorOpenAsync(string path, int? line, int? column, CancellationToken cancellationToken = default)
+    {
+        if (Follow.Enabled)
+        {
+            await Follow.TouchAsync(path, line, column, isEdit: false, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        await OpenAndScrollCoreAsync(path, line, column, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Pure open + scroll, with no follow-mode side effects. Used directly when AutoFocus
+    /// is off, and called by <see cref="FollowModeManager"/> when it is on.
+    /// </summary>
+    internal async Task OpenAndScrollCoreAsync(string path, int? line, int? column, CancellationToken cancellationToken)
     {
         await _jtf.SwitchToMainThreadAsync(cancellationToken);
 

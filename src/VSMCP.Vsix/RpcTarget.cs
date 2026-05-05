@@ -27,10 +27,17 @@ internal sealed partial class RpcTarget : IVsmcpRpc
     /// </summary>
     public bool AutoFocusEnabled { get; set; } = VsmcpGlobalDefaults.AutoFocusDefault;
 
+    /// <summary>
+    /// Tracks files VSMCP has opened on the user's behalf so they can be auto-closed
+    /// after a delay when "follow mode" (AutoFocus) is on. Initialized in the ctor.
+    /// </summary>
+    internal FollowModeManager Follow { get; }
+
     public RpcTarget(VSMCPPackage package, JoinableTaskFactory jtf)
     {
         _package = package;
         _jtf = jtf;
+        Follow = new FollowModeManager(this, package, jtf);
     }
 
     public async Task<HandshakeResult> HandshakeAsync(int clientMajor, int clientMinor, CancellationToken cancellationToken = default)
