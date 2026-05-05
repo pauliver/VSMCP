@@ -28,6 +28,25 @@ public interface IVsmcpCppRpc
     Task InvalidateAsync(string file, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Push the in-memory contents of an unsaved editor buffer into the analyzer's
+    /// CXUnsavedFile table. Subsequent parses for any TU that #includes this file see
+    /// <paramref name="content"/> instead of disk. Pass null/empty content to clear the
+    /// override (revert to disk). Also drops the cached TU for this file so the next
+    /// call reparses with the new content.
+    /// </summary>
+    Task SetUnsavedBufferAsync(string file, string? content, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Associate a precompiled-header source (e.g., "pch.h" / "stdafx.h") with a
+    /// translation unit. The analyzer compiles the header to a clang-format .pch on
+    /// first use and caches it in %TEMP%\vsmcp-pch\. Subsequent parses pass
+    /// <c>-include-pch &lt;cached.pch&gt;</c> to skip re-parsing the header's include
+    /// closure — order-of-magnitude speedup on large MFC/STL/Windows-SDK headers.
+    /// Pass null pchHeader to clear. Drops the cached TU.
+    /// </summary>
+    Task SetPchHeaderAsync(string file, string? pchHeader, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Cross-TU find references: discover the canonical USR at (seedFile, line, column), then walk
     /// each file in <paramref name="additionalFiles"/> looking for cursors that resolve to the same
     /// USR. Returns aggregated locations across all walked TUs. Slow first-call; subsequent calls

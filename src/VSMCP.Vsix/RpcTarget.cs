@@ -41,7 +41,10 @@ internal sealed partial class RpcTarget : IVsmcpRpc
         // Wire Open Folder mode auto-load. RpcTarget is recreated per-pipe-connection,
         // but TryEnableAutoLoad is interlocked-once so the subscription only attaches once.
         if (package.WorkspaceEvents is not null)
+        {
             TryEnableAutoLoad(package.WorkspaceEvents);
+            TryEnableUnsavedBufferAutoClear(package.WorkspaceEvents);
+        }
     }
 
     public async Task<HandshakeResult> HandshakeAsync(int clientMajor, int clientMinor, CancellationToken cancellationToken = default)

@@ -46,6 +46,10 @@ public interface IVsmcpRpc
     Task<CppQuickInfoResult> CppQuickInfoAsync(string file, int line, int column, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default);
     Task<CppLocationResult> CppGotoDefinitionAsync(string file, int line, int column, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default);
     Task CppInvalidateAsync(string file, CancellationToken cancellationToken = default);
+    /// <summary>Push or clear an unsaved-buffer override for libclang. Pass null/empty to revert to disk.</summary>
+    Task CppSetUnsavedBufferAsync(string file, string? content, CancellationToken cancellationToken = default);
+    /// <summary>Set or clear a precompiled-header source for a file. The analyzer compiles + caches the PCH on first use.</summary>
+    Task CppSetPchHeaderAsync(string file, string? pchHeader, CancellationToken cancellationToken = default);
     Task<CppReadMemberResult> CppReadMemberAsync(string file, string className, string memberName, CancellationToken cancellationToken = default);
     Task<CppOrganizeIncludesResult> CppOrganizeIncludesAsync(string file, CancellationToken cancellationToken = default);
     Task<CppSymbolSummaryResult> CppSymbolSummaryAsync(string symbol, CancellationToken cancellationToken = default);

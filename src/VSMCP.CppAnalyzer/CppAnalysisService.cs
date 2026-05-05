@@ -38,6 +38,18 @@ internal sealed class CppAnalysisService : IVsmcpCppRpc, IDisposable
         return Task.CompletedTask;
     }
 
+    public Task SetUnsavedBufferAsync(string file, string? content, CancellationToken cancellationToken = default)
+    {
+        _analysis.SetUnsavedBuffer(file, content);
+        return Task.CompletedTask;
+    }
+
+    public Task SetPchHeaderAsync(string file, string? pchHeader, CancellationToken cancellationToken = default)
+    {
+        _analysis.SetPchHeader(file, pchHeader);
+        return Task.CompletedTask;
+    }
+
     public Task<CppLocationListResult> FindReferencesInFilesAsync(string seedFile, int line, int column, string[] additionalFiles, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default)
         => Task.FromResult(_analysis.FindReferencesInFiles(seedFile, line, column, additionalFiles, extraIncludes, extraDefines, cancellationToken));
 

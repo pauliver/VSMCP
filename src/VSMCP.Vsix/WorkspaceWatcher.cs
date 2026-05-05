@@ -36,6 +36,13 @@ internal sealed class WorkspaceWatcher : IDisposable
     /// </summary>
     public event Action<string>? SolutionOpened;
 
+    /// <summary>
+    /// Optional callback fired when a document is saved. RpcTarget.CppSemantic wires this
+    /// up to clear the libclang unsaved-buffer override for that file (analyzer reverts
+    /// to reading the on-disk content).
+    /// </summary>
+    public event Action<string>? DocumentSavedExternal;
+
     public WorkspaceWatcher(EnvDTE80.DTE2 dte)
     {
         _dte = dte;
@@ -131,8 +138,16 @@ internal sealed class WorkspaceWatcher : IDisposable
 
     // -------- DTE handlers --------
 
-    private void OnDocumentSaved(EnvDTE.Document doc) =>
-        Add(WorkspaceEventKind.FileSaved, $"Saved: {doc?.Name ?? "<doc>"}", doc?.FullName);
+    private void OnDocumentSaved(EnvDTE.Document doc)
+    {
+        var path = doc?.FullName;
+        Add(WorkspaceEventKind.FileSaved, $"Saved: {doc?.Name ?? "<doc>"}", path);
+        if (!string.IsNullOrEmpty(path))
+        {
+            var snapshot = path!;
+            try { DocumentSavedExternal?.Invoke(snapshot); } catch { }
+        }
+    }
 
     private void OnDocumentOpened(EnvDTE.Document doc) =>
         Add(WorkspaceEventKind.DocumentOpened, $"Opened: {doc?.Name ?? "<doc>"}", doc?.FullName);

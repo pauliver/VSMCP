@@ -25,6 +25,15 @@ internal sealed class CppAnalysis : IDisposable
     // entries are at the head; eviction takes from the tail.
     private readonly Dictionary<string, LinkedListNode<CachedTu>> _tus = new(StringComparer.OrdinalIgnoreCase);
     private readonly LinkedList<CachedTu> _lru = new();
+    // Dirty editor buffers: file path → UTF-8 bytes of in-memory content. When set, libclang
+    // sees this content rather than the on-disk file (CXUnsavedFile). Cleared by
+    // SetUnsavedBuffer(file, null) once the editor saves.
+    private readonly Dictionary<string, byte[]> _unsavedBuffers = new(StringComparer.OrdinalIgnoreCase);
+    // PCH header per source file: file → header path (e.g. "C:\proj\pch.h"). When set, the
+    // header is compiled to a clang .pch and -include-pch is added to the source's parse args.
+    private readonly Dictionary<string, string> _pchByFile = new(StringComparer.OrdinalIgnoreCase);
+    // Compiled-PCH cache: header path → compiled .pch path. Populated lazily by EnsureCompiledPch.
+    private readonly Dictionary<string, string?> _compiledPch = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _lock = new();
     private const int MaxCachedTus = 50;
 
@@ -228,6 +237,122 @@ internal sealed class CppAnalysis : IDisposable
         }
     }
 
+    /// <summary>
+    /// Set or clear the unsaved-buffer override for a single file. Pass null/empty content
+    /// to clear. Drops the cached TU for this file so the next acquire reparses with the
+    /// new content.
+    /// </summary>
+    public void SetUnsavedBuffer(string file, string? content)
+    {
+        var full = Path.GetFullPath(file);
+        lock (_lock)
+        {
+            if (string.IsNullOrEmpty(content))
+            {
+                _unsavedBuffers.Remove(full);
+            }
+            else
+            {
+                // libclang wants raw bytes (UTF-8 in practice for C++ source).
+                _unsavedBuffers[full] = System.Text.Encoding.UTF8.GetBytes(content!);
+            }
+            // Also drop any cached TU for this file so the next call reparses with
+            // the override visible.
+            if (_tus.TryGetValue(full, out var node))
+            {
+                node.Value.Tu.Dispose();
+                _lru.Remove(node);
+                _tus.Remove(full);
+            }
+        }
+    }
+
+    public void SetPchHeader(string file, string? pchHeader)
+    {
+        var full = Path.GetFullPath(file);
+        lock (_lock)
+        {
+            if (string.IsNullOrEmpty(pchHeader)) _pchByFile.Remove(full);
+            else _pchByFile[full] = Path.GetFullPath(pchHeader!);
+            if (_tus.TryGetValue(full, out var node))
+            {
+                node.Value.Tu.Dispose();
+                _lru.Remove(node);
+                _tus.Remove(full);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Ensure the clang-format precompiled header for <paramref name="headerPath"/> exists on
+    /// disk and return its path. First call compiles + caches; subsequent calls return the
+    /// cached path. Returns null if compilation failed.
+    /// </summary>
+    private string? EnsureCompiledPch(string headerPath, string[] baseArgs)
+    {
+        var fullHeader = Path.GetFullPath(headerPath);
+        lock (_lock)
+        {
+            if (_compiledPch.TryGetValue(fullHeader, out var existing)) return existing;
+        }
+
+        try
+        {
+            // Cache key: the header's full path + last-write-time. If the header changes,
+            // the filename also changes so we naturally rebuild.
+            var stamp = File.Exists(fullHeader) ? File.GetLastWriteTimeUtc(fullHeader).Ticks : 0L;
+            var rawKey = fullHeader.ToLowerInvariant() + "|" + stamp;
+            var hashBytes = System.Security.Cryptography.SHA1.HashData(System.Text.Encoding.UTF8.GetBytes(rawKey));
+            var hash = Convert.ToHexString(hashBytes).ToLowerInvariant();
+            var pchDir = Path.Combine(Path.GetTempPath(), "vsmcp-pch");
+            Directory.CreateDirectory(pchDir);
+            var pchPath = Path.Combine(pchDir, hash + ".pch");
+
+            if (File.Exists(pchPath))
+            {
+                lock (_lock) _compiledPch[fullHeader] = pchPath;
+                return pchPath;
+            }
+
+            // PCH-build args: same -I/-D as the source's parse, but -xc++-header instead.
+            var pchArgs = new List<string> { "-xc++-header", "-std=c++20" };
+            foreach (var a in baseArgs)
+            {
+                if (a == "-xc++" || a == "-std=c++20" || a == "-fparse-all-comments") continue;
+                pchArgs.Add(a);
+            }
+
+            var pchTu = CXTranslationUnit.Parse(_index, fullHeader, pchArgs.ToArray(), ReadOnlySpan<CXUnsavedFile>.Empty,
+                CXTranslationUnit_Flags.CXTranslationUnit_ForSerialization
+                | CXTranslationUnit_Flags.CXTranslationUnit_KeepGoing);
+            if (pchTu.Handle == IntPtr.Zero)
+            {
+                lock (_lock) _compiledPch[fullHeader] = null;
+                return null;
+            }
+            try
+            {
+                var rc = pchTu.Save(pchPath, CXSaveTranslationUnit_Flags.CXSaveTranslationUnit_None);
+                if (rc != CXSaveError.CXSaveError_None)
+                {
+                    lock (_lock) _compiledPch[fullHeader] = null;
+                    return null;
+                }
+                lock (_lock) _compiledPch[fullHeader] = pchPath;
+                return pchPath;
+            }
+            finally
+            {
+                pchTu.Dispose();
+            }
+        }
+        catch
+        {
+            lock (_lock) _compiledPch[fullHeader] = null;
+            return null;
+        }
+    }
+
     public void Dispose()
     {
         lock (_lock)
@@ -298,7 +423,7 @@ internal sealed class CppAnalysis : IDisposable
         };
     }
 
-    private TuLease AcquireTu(string file, string[]? extraIncludes, string[]? extraDefines)
+    private unsafe TuLease AcquireTu(string file, string[]? extraIncludes, string[]? extraDefines)
     {
         var full = Path.GetFullPath(file);
         lock (_lock)
@@ -313,27 +438,75 @@ internal sealed class CppAnalysis : IDisposable
         }
 
         var args = BuildClangArgs(full, extraIncludes, extraDefines);
-        var unit = CXTranslationUnit.Parse(_index, full, args, ReadOnlySpan<CXUnsavedFile>.Empty,
-            CXTranslationUnit_Flags.CXTranslationUnit_DetailedPreprocessingRecord
-            | CXTranslationUnit_Flags.CXTranslationUnit_KeepGoing
-            | CXTranslationUnit_Flags.CXTranslationUnit_SkipFunctionBodies);
 
-        var cached = new CachedTu(full, unit);
-        lock (_lock)
+        // PCH? If the file has a registered precompiled-header source, compile it
+        // (cached) and prepend -include-pch to the args.
+        string? pchHeader;
+        lock (_lock) { _pchByFile.TryGetValue(full, out pchHeader); }
+        if (!string.IsNullOrEmpty(pchHeader))
         {
-            // Race: another caller may have populated the slot.
-            if (_tus.TryGetValue(full, out var existing))
+            var compiledPch = EnsureCompiledPch(pchHeader!, args);
+            if (!string.IsNullOrEmpty(compiledPch))
             {
-                cached.Tu.Dispose();
-                _lru.Remove(existing);
-                _lru.AddFirst(existing);
-                return new TuLease(existing.Value);
+                var augmented = new List<string>(args.Length + 2) { "-include-pch", compiledPch! };
+                augmented.AddRange(args);
+                args = augmented.ToArray();
             }
-            var node = _lru.AddFirst(cached);
-            _tus[full] = node;
-            EvictIfNeeded();
         }
-        return new TuLease(cached);
+
+        // Snapshot the unsaved buffers. Pin the bytes so libclang can read them directly.
+        KeyValuePair<string, byte[]>[] snapshot;
+        lock (_lock) { snapshot = _unsavedBuffers.ToArray(); }
+
+        var pinnedFilenames = new List<GCHandle>(snapshot.Length);
+        var pinnedContents = new List<GCHandle>(snapshot.Length);
+        var unsavedArr = snapshot.Length == 0 ? null : new CXUnsavedFile[snapshot.Length];
+        try
+        {
+            for (int i = 0; i < snapshot.Length; i++)
+            {
+                var nameBytes = System.Text.Encoding.UTF8.GetBytes(snapshot[i].Key + "\0");
+                var contentBytes = snapshot[i].Value;
+                var nameHandle = GCHandle.Alloc(nameBytes, GCHandleType.Pinned);
+                var contentHandle = GCHandle.Alloc(contentBytes, GCHandleType.Pinned);
+                pinnedFilenames.Add(nameHandle);
+                pinnedContents.Add(contentHandle);
+                unsavedArr![i] = new CXUnsavedFile
+                {
+                    Filename = (sbyte*)nameHandle.AddrOfPinnedObject(),
+                    Contents = (sbyte*)contentHandle.AddrOfPinnedObject(),
+                    Length = (UIntPtr)contentBytes.Length,
+                };
+            }
+
+            var unsavedSpan = unsavedArr is null ? ReadOnlySpan<CXUnsavedFile>.Empty : unsavedArr.AsSpan();
+            var unit = CXTranslationUnit.Parse(_index, full, args, unsavedSpan,
+                CXTranslationUnit_Flags.CXTranslationUnit_DetailedPreprocessingRecord
+                | CXTranslationUnit_Flags.CXTranslationUnit_KeepGoing
+                | CXTranslationUnit_Flags.CXTranslationUnit_SkipFunctionBodies);
+
+            var cached = new CachedTu(full, unit);
+            lock (_lock)
+            {
+                // Race: another caller may have populated the slot.
+                if (_tus.TryGetValue(full, out var existing))
+                {
+                    cached.Tu.Dispose();
+                    _lru.Remove(existing);
+                    _lru.AddFirst(existing);
+                    return new TuLease(existing.Value);
+                }
+                var node = _lru.AddFirst(cached);
+                _tus[full] = node;
+                EvictIfNeeded();
+            }
+            return new TuLease(cached);
+        }
+        finally
+        {
+            foreach (var h in pinnedFilenames) if (h.IsAllocated) h.Free();
+            foreach (var h in pinnedContents) if (h.IsAllocated) h.Free();
+        }
     }
 
     private void EvictIfNeeded()

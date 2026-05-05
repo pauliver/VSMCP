@@ -54,6 +54,7 @@ internal sealed partial class RpcTarget
     public async Task<CppDiagnosticsResult> CppDiagnosticsAsync(string file, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(file)) throw new VsmcpException(ErrorCodes.NotFound, "file is required.");
+        await EnsurePchPushedAsync(file, cancellationToken).ConfigureAwait(false);
         var includes = await ResolveCppIncludesAsync(file, extraIncludes, cancellationToken).ConfigureAwait(false);
         var proxy = await CppAnalyzerHost.GetProxyAsync(cancellationToken).ConfigureAwait(false);
         return await proxy.DiagnosticsAsync(file, includes, extraDefines, cancellationToken).ConfigureAwait(false);
@@ -62,6 +63,7 @@ internal sealed partial class RpcTarget
     public async Task<CppLocationListResult> CppFindReferencesSemAsync(string file, int line, int column, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(file)) throw new VsmcpException(ErrorCodes.NotFound, "file is required.");
+        await EnsurePchPushedAsync(file, cancellationToken).ConfigureAwait(false);
         var includes = await ResolveCppIncludesAsync(file, extraIncludes, cancellationToken).ConfigureAwait(false);
         var proxy = await CppAnalyzerHost.GetProxyAsync(cancellationToken).ConfigureAwait(false);
         return await proxy.FindReferencesAsync(file, line, column, includes, extraDefines, cancellationToken).ConfigureAwait(false);
@@ -70,6 +72,7 @@ internal sealed partial class RpcTarget
     public async Task<CppQuickInfoResult> CppQuickInfoAsync(string file, int line, int column, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(file)) throw new VsmcpException(ErrorCodes.NotFound, "file is required.");
+        await EnsurePchPushedAsync(file, cancellationToken).ConfigureAwait(false);
         var includes = await ResolveCppIncludesAsync(file, extraIncludes, cancellationToken).ConfigureAwait(false);
         var proxy = await CppAnalyzerHost.GetProxyAsync(cancellationToken).ConfigureAwait(false);
         return await proxy.QuickInfoAsync(file, line, column, includes, extraDefines, cancellationToken).ConfigureAwait(false);
@@ -78,6 +81,7 @@ internal sealed partial class RpcTarget
     public async Task<CppLocationResult> CppGotoDefinitionAsync(string file, int line, int column, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(file)) throw new VsmcpException(ErrorCodes.NotFound, "file is required.");
+        await EnsurePchPushedAsync(file, cancellationToken).ConfigureAwait(false);
         var includes = await ResolveCppIncludesAsync(file, extraIncludes, cancellationToken).ConfigureAwait(false);
         var proxy = await CppAnalyzerHost.GetProxyAsync(cancellationToken).ConfigureAwait(false);
         return await proxy.GotoDefinitionAsync(file, line, column, includes, extraDefines, cancellationToken).ConfigureAwait(false);
@@ -88,6 +92,140 @@ internal sealed partial class RpcTarget
         if (string.IsNullOrEmpty(file)) throw new VsmcpException(ErrorCodes.NotFound, "file is required.");
         var proxy = await CppAnalyzerHost.GetProxyAsync(cancellationToken).ConfigureAwait(false);
         await proxy.InvalidateAsync(file, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task CppSetUnsavedBufferAsync(string file, string? content, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(file)) throw new VsmcpException(ErrorCodes.NotFound, "file is required.");
+        var proxy = await CppAnalyzerHost.GetProxyAsync(cancellationToken).ConfigureAwait(false);
+        await proxy.SetUnsavedBufferAsync(file, content, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task CppSetPchHeaderAsync(string file, string? pchHeader, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(file)) throw new VsmcpException(ErrorCodes.NotFound, "file is required.");
+        var proxy = await CppAnalyzerHost.GetProxyAsync(cancellationToken).ConfigureAwait(false);
+        await proxy.SetPchHeaderAsync(file, pchHeader, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static readonly System.Collections.Generic.HashSet<string> s_pchPushed = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly object s_pchPushedLock = new();
+
+    /// <summary>
+    /// Auto-detect the PCH header for a source file (via .vcxproj walk) and push it to the
+    /// analyzer once per file path. No-op if no PCH is configured. Best-effort; failures
+    /// are swallowed so the original semantic call isn't blocked.
+    /// </summary>
+    private async Task EnsurePchPushedAsync(string file, CancellationToken ct)
+    {
+        var full = Path.GetFullPath(file);
+        lock (s_pchPushedLock) { if (!s_pchPushed.Add(full)) return; }
+        try
+        {
+            var pch = AutoDetectPchHeader(full);
+            if (string.IsNullOrEmpty(pch)) return;
+            await CppSetPchHeaderAsync(full, pch, ct).ConfigureAwait(false);
+        }
+        catch { /* best-effort */ }
+    }
+
+    /// <summary>
+    /// Walk up from a source file looking for a sibling .vcxproj that declares a
+    /// &lt;PrecompiledHeaderFile&gt; element. Returns the absolute path of the PCH header
+    /// (resolved relative to the .vcxproj directory), or null if no PCH is configured.
+    /// </summary>
+    private static string? AutoDetectPchHeader(string sourceFile)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(sourceFile);
+            for (int i = 0; i < 8 && !string.IsNullOrEmpty(dir); i++)
+            {
+                string[] vcxprojs;
+                try { vcxprojs = Directory.GetFiles(dir!, "*.vcxproj"); } catch { vcxprojs = Array.Empty<string>(); }
+                if (vcxprojs.Length > 0)
+                {
+                    foreach (var vcx in vcxprojs)
+                    {
+                        try
+                        {
+                            var doc = System.Xml.Linq.XDocument.Load(vcx);
+                            var ns = doc.Root?.Name.NamespaceName ?? "";
+                            var pch = doc.Descendants(System.Xml.Linq.XName.Get("PrecompiledHeaderFile", ns))
+                                .Select(e => e.Value)
+                                .FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
+                            if (string.IsNullOrEmpty(pch)) continue;
+                            // Resolve relative to the .vcxproj directory.
+                            var vcxDir = Path.GetDirectoryName(vcx)!;
+                            var resolved = Path.IsPathRooted(pch) ? pch : Path.GetFullPath(Path.Combine(vcxDir, pch!));
+                            if (File.Exists(resolved)) return resolved;
+                            // Also try the conventional <vcxDir>/<pch> match.
+                            var conventional = Path.Combine(vcxDir, Path.GetFileName(pch!));
+                            if (File.Exists(conventional)) return conventional;
+                        }
+                        catch { /* skip malformed .vcxproj */ }
+                    }
+                }
+                var parent = Path.GetDirectoryName(dir);
+                if (string.IsNullOrEmpty(parent) || string.Equals(parent, dir, StringComparison.OrdinalIgnoreCase)) break;
+                dir = parent;
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    private static int s_unsavedBufferHooked;
+
+    /// <summary>
+    /// Wire DocumentSavedExternal to clear the analyzer's unsaved-buffer override for that
+    /// file (analyzer reverts to disk content). Idempotent; runs once per process.
+    /// </summary>
+    internal void TryEnableUnsavedBufferAutoClear(WorkspaceWatcher watcher)
+    {
+        if (System.Threading.Interlocked.Exchange(ref s_unsavedBufferHooked, 1) != 0) return;
+        watcher.DocumentSavedExternal += async path =>
+        {
+            // Only push the clear if the analyzer is already up. Don't spawn it just to
+            // forward a save event for a non-cpp file, or for a project that never used
+            // libclang in the first place.
+            var probe = CppAnalyzerHost.Probe();
+            if (!probe.spawnAttempted) return;
+            try { await CppSetUnsavedBufferAsync(path, null, default).ConfigureAwait(false); }
+            catch { /* analyzer may have died — best-effort */ }
+        };
+    }
+
+    /// <summary>
+    /// Sync the analyzer's unsaved-buffer table for a single file with the live VS editor.
+    /// If the doc is open AND dirty, push the in-memory text. Otherwise clear any override.
+    /// Best-effort; failures are swallowed so callers don't need to wrap.
+    /// </summary>
+    internal async Task SyncDirtyBufferToAnalyzerAsync(string file, CancellationToken ct)
+    {
+        try
+        {
+            await _jtf.SwitchToMainThreadAsync(ct);
+            string? content = null;
+            if (await _package.GetServiceAsync(typeof(EnvDTE.DTE)) is DTE2 dte
+                && dte.Documents is not null)
+            {
+                foreach (EnvDTE.Document doc in dte.Documents)
+                {
+                    if (doc is null) continue;
+                    if (!string.Equals(doc.FullName, file, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (doc.Saved) break; // not dirty — clear below
+                    if (doc.Object("TextDocument") is EnvDTE.TextDocument td)
+                    {
+                        var ep = td.StartPoint.CreateEditPoint();
+                        content = ep.GetText(td.EndPoint);
+                    }
+                    break;
+                }
+            }
+            await CppSetUnsavedBufferAsync(file, content, ct).ConfigureAwait(false);
+        }
+        catch { /* best-effort */ }
     }
 
     public async Task<CppLocationListResult> CppFindReferencesSolutionAsync(string file, int line, int column, int maxFiles, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default)
@@ -104,6 +242,7 @@ internal sealed partial class RpcTarget
             .Take(maxFiles)
             .ToArray();
 
+        await EnsurePchPushedAsync(file, cancellationToken).ConfigureAwait(false);
         var includes = await ResolveCppIncludesAsync(file, extraIncludes, cancellationToken).ConfigureAwait(false);
         var proxy = await CppAnalyzerHost.GetProxyAsync(cancellationToken).ConfigureAwait(false);
         return await proxy.FindReferencesInFilesAsync(file, line, column, others, includes, extraDefines, cancellationToken).ConfigureAwait(false);
