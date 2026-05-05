@@ -29,6 +29,31 @@ public sealed class CppMembersResult
     public List<CppDecl> Members { get; set; } = new();
 }
 
+/// <summary>One declaration in a multi-file aggregation result. Like CppDecl but with a File field.</summary>
+public sealed class CppFileDecl
+{
+    public string Kind { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string? Container { get; set; }
+    public string File { get; set; } = "";
+    public int Line { get; set; }
+    public string Signature { get; set; } = "";
+}
+
+public sealed class CppClassesResult
+{
+    public List<CppFileDecl> Classes { get; set; } = new();
+    public int Total { get; set; }
+    public bool Truncated { get; set; }
+}
+
+public sealed class CppFindSymbolResult
+{
+    public List<CppFileDecl> Matches { get; set; } = new();
+    public int Total { get; set; }
+    public bool Truncated { get; set; }
+}
+
 // C++ Extensions
 
 public sealed class HeaderLookupResult

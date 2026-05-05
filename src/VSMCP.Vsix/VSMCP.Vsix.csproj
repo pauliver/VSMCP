@@ -128,6 +128,9 @@
     <Compile Include="RpcTarget.WorkspaceSidecar.cs" />
     <Compile Include="CppOutlineParser.cs" />
     <Compile Include="RpcTarget.CppOutline.cs" />
+    <Compile Include="RpcTarget.CppSearch.cs" />
+    <Compile Include="CppAnalyzerHost.cs" />
+    <Compile Include="RpcTarget.CppSemantic.cs" />
   </ItemGroup>
 
   <ItemGroup>

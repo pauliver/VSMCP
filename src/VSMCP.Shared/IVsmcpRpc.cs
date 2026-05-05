@@ -37,6 +37,15 @@ public interface IVsmcpRpc
     // Roslyn-aware tools (file_outline, code_find_symbol, etc.) work even without a .sln.
     Task<CppOutlineResult> CppOutlineAsync(string file, CancellationToken cancellationToken = default);
     Task<CppMembersResult> CppClassMembersAsync(string file, string className, CancellationToken cancellationToken = default);
+    Task<CppClassesResult> CppClassesAsync(string? namePattern, IReadOnlyList<string>? kinds, int maxResults, CancellationToken cancellationToken = default);
+    Task<CppFindSymbolResult> CppFindSymbolAsync(string name, string? kind, int maxResults, CancellationToken cancellationToken = default);
+
+    // Semantic tier — proxied to the out-of-process CppAnalyzer (libclang).
+    Task<CppDiagnosticsResult> CppDiagnosticsAsync(string file, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default);
+    Task<CppLocationListResult> CppFindReferencesSemAsync(string file, int line, int column, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default);
+    Task<CppQuickInfoResult> CppQuickInfoAsync(string file, int line, int column, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default);
+    Task<CppLocationResult> CppGotoDefinitionAsync(string file, int line, int column, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default);
+    Task CppInvalidateAsync(string file, CancellationToken cancellationToken = default);
 
     Task<ProjectLoadResult> ProjectLoadAsync(string csprojPath, CancellationToken cancellationToken = default);
     Task<ProjectLoadFolderResult> ProjectLoadWorkspaceFolderAsync(string? rootPath, CancellationToken cancellationToken = default);

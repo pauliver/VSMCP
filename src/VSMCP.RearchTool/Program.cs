@@ -97,6 +97,57 @@ internal static class Program
                     Console.Error.WriteLine($"[cpp-outline] file={r.File} decls={r.Total} truncated={r.Truncated}");
                     return 0;
                 }
+                case "cpp-classes":
+                {
+                    var name = args.LastOrDefault(a => !a.StartsWith("--") && a != "cpp-classes");
+                    var r = await conn.Proxy.CppClassesAsync(name, null, 1000, default).ConfigureAwait(false);
+                    Console.WriteLine(JsonSerializer.Serialize(r, new JsonSerializerOptions { WriteIndented = true }));
+                    Console.Error.WriteLine($"[cpp-classes] total={r.Total}");
+                    return 0;
+                }
+                case "cpp-find-symbol":
+                {
+                    var nonOpts = args.Where(a => !a.StartsWith("--") && a != "cpp-find-symbol").ToList();
+                    if (nonOpts.Count < 1) throw new InvalidOperationException("usage: cpp-find-symbol <name>");
+                    var r = await conn.Proxy.CppFindSymbolAsync(nonOpts[0], null, 100, default).ConfigureAwait(false);
+                    Console.WriteLine(JsonSerializer.Serialize(r, new JsonSerializerOptions { WriteIndented = true }));
+                    Console.Error.WriteLine($"[cpp-find-symbol] total={r.Total}");
+                    return 0;
+                }
+                case "cpp-diagnostics":
+                {
+                    var file = args.LastOrDefault(a => !a.StartsWith("--") && a != "cpp-diagnostics")
+                        ?? throw new InvalidOperationException("provide file path");
+                    var r = await conn.Proxy.CppDiagnosticsAsync(file, null, null, default).ConfigureAwait(false);
+                    Console.WriteLine(JsonSerializer.Serialize(r, new JsonSerializerOptions { WriteIndented = true }));
+                    Console.Error.WriteLine($"[cpp-diagnostics] file={r.File} count={r.Diagnostics.Count} hasErrors={r.HasErrors}");
+                    return 0;
+                }
+                case "cpp-quick-info":
+                {
+                    var nonOpts = args.Where(a => !a.StartsWith("--") && a != "cpp-quick-info").ToList();
+                    if (nonOpts.Count < 3) throw new InvalidOperationException("usage: cpp-quick-info <file> <line> <col>");
+                    var r = await conn.Proxy.CppQuickInfoAsync(nonOpts[0], int.Parse(nonOpts[1]), int.Parse(nonOpts[2]), null, null, default).ConfigureAwait(false);
+                    Console.WriteLine(JsonSerializer.Serialize(r, new JsonSerializerOptions { WriteIndented = true }));
+                    return 0;
+                }
+                case "cpp-find-refs":
+                {
+                    var nonOpts = args.Where(a => !a.StartsWith("--") && a != "cpp-find-refs").ToList();
+                    if (nonOpts.Count < 3) throw new InvalidOperationException("usage: cpp-find-refs <file> <line> <col>");
+                    var r = await conn.Proxy.CppFindReferencesSemAsync(nonOpts[0], int.Parse(nonOpts[1]), int.Parse(nonOpts[2]), null, null, default).ConfigureAwait(false);
+                    Console.WriteLine(JsonSerializer.Serialize(r, new JsonSerializerOptions { WriteIndented = true }));
+                    Console.Error.WriteLine($"[cpp-find-refs] spelling={r.Spelling} kind={r.Kind} total={r.Total}");
+                    return 0;
+                }
+                case "cpp-goto-def":
+                {
+                    var nonOpts = args.Where(a => !a.StartsWith("--") && a != "cpp-goto-def").ToList();
+                    if (nonOpts.Count < 3) throw new InvalidOperationException("usage: cpp-goto-def <file> <line> <col>");
+                    var r = await conn.Proxy.CppGotoDefinitionAsync(nonOpts[0], int.Parse(nonOpts[1]), int.Parse(nonOpts[2]), null, null, default).ConfigureAwait(false);
+                    Console.WriteLine(JsonSerializer.Serialize(r, new JsonSerializerOptions { WriteIndented = true }));
+                    return 0;
+                }
                 case "cpp-class-members":
                 {
                     var nonOpts = args.Where(a => !a.StartsWith("--") && a != "cpp-class-members").ToList();
