@@ -42,6 +42,10 @@ public interface IVsmcpRpc
     Task EditorSaveAsync(string path, CancellationToken cancellationToken = default);
     Task EditorSaveAllAsync(CancellationToken cancellationToken = default);
 
+    // Bulk file rename / move with optional .csproj <Compile Include> sync. dryRun returns
+    // the planned outcomes without touching disk or the csproj.
+    Task<FileMoveManyResult> FileMoveManyAsync(IReadOnlyList<FileMovePair> moves, bool updateProject, bool dryRun, CancellationToken cancellationToken = default);
+
     // -------- Build --------
     Task<BuildHandle> BuildStartAsync(string? configuration, string? platform, IReadOnlyList<string>? projectIds, CancellationToken cancellationToken = default);
     Task<BuildHandle> BuildRebuildAsync(string? configuration, string? platform, IReadOnlyList<string>? projectIds, CancellationToken cancellationToken = default);
