@@ -223,6 +223,8 @@ public sealed class CppMoveTypeResult
     public int StartLine { get; set; }
     public int EndLine { get; set; }
     public string? Note { get; set; }
+    /// <summary>Sister .cpp/.cc/.cxx files whose #include of the source header was rewritten to point at the target.</summary>
+    public List<string> UpdatedSiblingFiles { get; set; } = new();
 }
 
 public sealed class CppMoveMethodResult
@@ -235,6 +237,8 @@ public sealed class CppMoveMethodResult
     public int StartLine { get; set; }
     public int EndLine { get; set; }
     public string? Note { get; set; }
+    /// <summary>Sister .cpp/.cc/.cxx files whose #include of the source header was rewritten.</summary>
+    public List<string> UpdatedSiblingFiles { get; set; } = new();
 }
 
 public sealed class CppAnalyzerStatusResult

@@ -208,34 +208,71 @@ internal sealed partial class RpcTarget
         if (string.IsNullOrEmpty(derivedClass)) throw new VsmcpException(ErrorCodes.NotFound, "derivedClass is required.");
         if (string.IsNullOrEmpty(baseClass)) throw new VsmcpException(ErrorCodes.NotFound, "baseClass is required.");
 
+        // Strip template arguments from the base name for symbol lookup. "Base<T>" -> "Base".
+        // The find_symbol path only knows declared names, not instantiations.
+        var baseNameForLookup = baseClass;
+        var lt = baseNameForLookup.IndexOf('<');
+        if (lt > 0) baseNameForLookup = baseNameForLookup.Substring(0, lt).Trim();
+        // Also strip namespace qualifiers — "ns::Foo<T>" -> "Foo".
+        var qq = baseNameForLookup.LastIndexOf("::", StringComparison.Ordinal);
+        if (qq >= 0) baseNameForLookup = baseNameForLookup.Substring(qq + 2);
+
         // Find baseClassFile if not supplied.
         if (string.IsNullOrEmpty(baseClassFile))
         {
-            var find = await CppFindSymbolAsync(baseClass, "class", 1, cancellationToken).ConfigureAwait(false);
+            var find = await CppFindSymbolAsync(baseNameForLookup, "class", 1, cancellationToken).ConfigureAwait(false);
             if (find.Matches.Count == 0)
-                find = await CppFindSymbolAsync(baseClass, "struct", 1, cancellationToken).ConfigureAwait(false);
+                find = await CppFindSymbolAsync(baseNameForLookup, "struct", 1, cancellationToken).ConfigureAwait(false);
             baseClassFile = find.Matches.FirstOrDefault()?.File;
             if (string.IsNullOrEmpty(baseClassFile))
-                throw new VsmcpException(ErrorCodes.NotFound, $"Could not locate '{baseClass}' in solution.");
+                throw new VsmcpException(ErrorCodes.NotFound, $"Could not locate '{baseNameForLookup}' in solution.");
         }
 
         // Walk the base class for `virtual ... method(...)` declarations.
         var baseLines = File.ReadAllLines(baseClassFile!);
         var baseOutline = CppOutlineParser.Parse(baseClassFile!);
         var baseDecl = baseOutline.Declarations.FirstOrDefault(d =>
-            (d.Kind == "class" || d.Kind == "struct") && d.Name == baseClass);
+            (d.Kind == "class" || d.Kind == "struct") && d.Name == baseNameForLookup);
         if (baseDecl is null)
-            throw new VsmcpException(ErrorCodes.NotFound, $"Base class '{baseClass}' declaration not found in '{baseClassFile}'.");
+            throw new VsmcpException(ErrorCodes.NotFound, $"Base class '{baseNameForLookup}' declaration not found in '{baseClassFile}'.");
         int baseStart = baseDecl.Line - 1;
         int baseEnd = FindMemberEndLine(baseLines, baseStart);
 
-        var virtualRx = new Regex(@"^\s*virtual\s+(?<sig>(?<ret>[\w:<>,\s\*\&]+?)\s+(?<name>[A-Za-z_]\w*)\s*\((?<params>[^)]*)\)\s*(?:const)?)\s*(?:override)?\s*(?:=\s*0)?\s*;",
-            RegexOptions.Compiled);
-        var pureVirtualRx = new Regex(@"=\s*0\s*;", RegexOptions.Compiled);
-        var virtuals = new List<(string Sig, string Name, string Ret, string Params)>();
+        // Pre-process: collapse multi-line virtual declarations into single lines so the
+        // regex doesn't miss `virtual ret\n    method(args) const = 0;` patterns. Joins
+        // until we see `;` or `{` outside template-bracket nesting.
+        var collapsed = new List<string>();
+        var sbLine = new StringBuilder();
+        int templateDepth = 0;
         for (int i = baseStart + 1; i < baseEnd && i < baseLines.Length; i++)
         {
-            var m = virtualRx.Match(baseLines[i]);
+            foreach (var ch in baseLines[i])
+            {
+                if (ch == '<') templateDepth++;
+                else if (ch == '>' && templateDepth > 0) templateDepth--;
+            }
+            if (sbLine.Length > 0) sbLine.Append(' ');
+            sbLine.Append(baseLines[i].Trim());
+            // Terminator outside template — end of statement.
+            if (templateDepth == 0 && (baseLines[i].Contains(';') || baseLines[i].TrimEnd().EndsWith("{")))
+            {
+                collapsed.Add(sbLine.ToString());
+                sbLine.Clear();
+            }
+        }
+        if (sbLine.Length > 0) collapsed.Add(sbLine.ToString());
+
+        // Allow multiple trailing modifiers (const, noexcept, override, final, throw(...))
+        // before `= 0` or `;`. Also allow ref-qualifier `&` / `&&`.
+        var virtualRx = new Regex(
+            @"^\s*virtual\s+(?<sig>(?<ret>[\w:<>,\s\*\&]+?)\s+(?<name>[A-Za-z_]\w*)\s*\((?<params>[^)]*)\)" +
+            @"\s*(?:&{1,2})?(?:\s+(?:const|noexcept|override|final|throw\s*\([^)]*\)))*)" +
+            @"\s*(?:=\s*0)?\s*;",
+            RegexOptions.Compiled);
+        var virtuals = new List<(string Sig, string Name, string Ret, string Params)>();
+        foreach (var line in collapsed)
+        {
+            var m = virtualRx.Match(line);
             if (!m.Success) continue;
             virtuals.Add((m.Groups["sig"].Value.Trim(), m.Groups["name"].Value, m.Groups["ret"].Value.Trim(), m.Groups["params"].Value));
         }

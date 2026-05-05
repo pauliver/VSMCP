@@ -68,6 +68,84 @@ internal sealed partial class RpcTarget
         };
     }
 
+    /// <summary>
+    /// After a header type/method moves from <paramref name="sourceHeader"/> to <paramref name="targetHeader"/>,
+    /// scan sister .cpp files (basename match in same dir + solution-wide) for an
+    /// <c>#include "OldHeaderName"</c> that should now point at the new header. Adds the new
+    /// include alongside the old one when the .cpp also references <paramref name="className"/>::
+    /// (so we don't break files that incidentally include the source header for unrelated reasons).
+    /// Returns the list of sibling files we touched.
+    /// </summary>
+    private async Task<List<string>> UpdateSiblingIncludesAsync(string sourceHeader, string targetHeader, string className, CancellationToken ct)
+    {
+        var updated = new List<string>();
+        var srcBase = Path.GetFileName(sourceHeader);
+        var tgtBase = Path.GetFileName(targetHeader);
+        if (string.Equals(srcBase, tgtBase, StringComparison.OrdinalIgnoreCase)) return updated;
+
+        // Candidate set: sibling in same directory + any .cpp the solution exposes.
+        var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var srcDir = Path.GetDirectoryName(sourceHeader);
+        if (!string.IsNullOrEmpty(srcDir))
+        {
+            foreach (var ext in new[] { ".cpp", ".cc", ".cxx", ".c" })
+            {
+                var sister = Path.ChangeExtension(sourceHeader, ext);
+                if (File.Exists(sister)) candidates.Add(sister);
+            }
+        }
+
+        // Also pull .cpp files known to the solution.
+        try
+        {
+            var files = await FileListAsync(null, null, "*.{cpp,cc,cxx,c}",
+                new[] { "file" }, 50_000, ct).ConfigureAwait(false);
+            foreach (var f in files.Files) candidates.Add(f.Path);
+        }
+        catch { /* best-effort */ }
+
+        var includeRx = new System.Text.RegularExpressions.Regex(
+            $@"^\s*#\s*include\s*[""<]([^"">]*?{System.Text.RegularExpressions.Regex.Escape(srcBase)})[""<>]",
+            System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.Multiline);
+        var classQualifiedRx = new System.Text.RegularExpressions.Regex(
+            $@"\b{System.Text.RegularExpressions.Regex.Escape(className)}\s*::",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        foreach (var cand in candidates)
+        {
+            ct.ThrowIfCancellationRequested();
+            string text;
+            try { text = File.ReadAllText(cand); } catch { continue; }
+            if (!includeRx.IsMatch(text)) continue;
+            // Heuristic: only rewrite if the file actually uses ClassName:: (out-of-line definitions).
+            if (!classQualifiedRx.IsMatch(text)) continue;
+            // Don't double-add the new include if it's already there.
+            var hasTarget = new System.Text.RegularExpressions.Regex(
+                $@"^\s*#\s*include\s*[""<][^"">]*?{System.Text.RegularExpressions.Regex.Escape(tgtBase)}[""<>]",
+                System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.Multiline);
+            if (hasTarget.IsMatch(text)) { updated.Add(cand); continue; }
+
+            // Inject `#include "tgtBase"` immediately after the matched source include line.
+            var rewritten = includeRx.Replace(text, m =>
+            {
+                var path = m.Groups[1].Value;
+                // Preserve the original include style (quoted vs angle).
+                var line = m.Value;
+                var isAngle = line.Contains('<');
+                var newLine = isAngle ? $"#include <{tgtBase}>" : $"#include \"{tgtBase}\"";
+                return line + Environment.NewLine + newLine;
+            }, 1);
+
+            try
+            {
+                File.WriteAllText(cand, rewritten);
+                updated.Add(cand);
+            }
+            catch { /* file locked or read-only — skip */ }
+        }
+        return updated;
+    }
+
     // ---- cpp_move_type ----
 
     public async Task<CppMoveTypeResult> CppMoveTypeAsync(string sourceFile, string typeName, string targetFile, bool createTargetIfMissing, CancellationToken cancellationToken = default)
@@ -131,10 +209,17 @@ internal sealed partial class RpcTarget
             EndColumn = lines[Math.Min(endIdx, lines.Length - 1)].Length + 1,
         }, "", cancellationToken).ConfigureAwait(false);
 
+        // Follow .cpp out-of-line definitions: any sister .cpp using `TypeName::` and including
+        // the source header gets a parallel #include of the target header.
+        List<string> updatedSiblings;
+        try { updatedSiblings = await UpdateSiblingIncludesAsync(sourceFile, targetFile, typeName, cancellationToken).ConfigureAwait(false); }
+        catch { updatedSiblings = new List<string>(); }
+
         try
         {
             await CppInvalidateAsync(sourceFile, cancellationToken).ConfigureAwait(false);
             await CppInvalidateAsync(targetFile, cancellationToken).ConfigureAwait(false);
+            foreach (var s in updatedSiblings) await CppInvalidateAsync(s, cancellationToken).ConfigureAwait(false);
         }
         catch { }
 
@@ -146,7 +231,10 @@ internal sealed partial class RpcTarget
             Moved = true,
             StartLine = startIdx + 1,
             EndLine = endIdx + 1,
-            Note = "v1: header-only move. If this type has out-of-line method definitions in a .cpp, those references stay in the original .cpp and may need manual #include adjustments.",
+            UpdatedSiblingFiles = updatedSiblings,
+            Note = updatedSiblings.Count > 0
+                ? $"Moved type and added #include of target header to {updatedSiblings.Count} sibling .cpp file(s) that reference {typeName}::."
+                : "v1: header-only move. No sibling .cpp files needed include rewrites.",
         };
     }
 
@@ -210,10 +298,15 @@ internal sealed partial class RpcTarget
             EndColumn = lines[Math.Min(endIdx, lines.Length - 1)].Length + 1,
         }, "", cancellationToken).ConfigureAwait(false);
 
+        List<string> updatedSiblings;
+        try { updatedSiblings = await UpdateSiblingIncludesAsync(sourceFile, targetFile, className, cancellationToken).ConfigureAwait(false); }
+        catch { updatedSiblings = new List<string>(); }
+
         try
         {
             await CppInvalidateAsync(sourceFile, cancellationToken).ConfigureAwait(false);
             await CppInvalidateAsync(targetFile, cancellationToken).ConfigureAwait(false);
+            foreach (var s in updatedSiblings) await CppInvalidateAsync(s, cancellationToken).ConfigureAwait(false);
         }
         catch { }
 
@@ -226,7 +319,10 @@ internal sealed partial class RpcTarget
             Moved = true,
             StartLine = startIdx + 1,
             EndLine = endIdx + 1,
-            Note = "v1: text move with className:: qualification injected when missing. If the method body references private members, you may need to add a friend declaration or move to the .cpp instead.",
+            UpdatedSiblingFiles = updatedSiblings,
+            Note = updatedSiblings.Count > 0
+                ? $"Moved method and updated {updatedSiblings.Count} sibling .cpp file(s) that reference {className}::."
+                : "v1: text move with className:: qualification injected when missing.",
         };
     }
 }
