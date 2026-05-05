@@ -237,6 +237,17 @@ public sealed class CppMoveMethodResult
     public string? Note { get; set; }
 }
 
+public sealed class CppAnalyzerStatusResult
+{
+    public bool Spawned { get; set; }
+    public int? ProcessId { get; set; }
+    public bool Alive { get; set; }
+    public int? ExitCode { get; set; }
+    public string? LogPath { get; set; }
+    public List<string> RecentLog { get; set; } = new();
+    public string? LastError { get; set; }
+}
+
 // C++ Extensions
 
 public sealed class HeaderLookupResult

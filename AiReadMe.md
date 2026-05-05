@@ -211,6 +211,19 @@ For dumps with no managed symbols, ask the user for a symbol path before walking
 
 ---
 
+## v1 limitations & gotchas
+
+| Gotcha | What it means | Mitigation |
+|---|---|---|
+| **libclang cold start** | First `cpp_*` semantic call takes 1-3s as the sidecar process spawns and parses the file fresh. Subsequent calls reuse the cached translation unit. | Don't worry about it for one-shot tasks; the first call eats the cost. For interactive UX, prime the analyzer with a cheap `cpp_diagnostics` on the active file at session start. |
+| **Dirty editor buffers ignored** | The libclang sidecar parses the on-disk file, not VS's in-memory buffer. If the user has unsaved edits, your semantic queries will reflect the previous saved version. | After every save (or right before a semantic query), call `mcp__vsmcp__cpp_invalidate(file)` so the analyzer reparses. Or run `editor_save_all` before a semantic batch. |
+| **VS reload prompts** | Mutating tools (`file_move_many`, `cpp_replace_member`, `file_replace_range`, etc.) edit files on disk. If the file is open in VS, VS may pop a "file changed externally — reload?" dialog. | One-time setup: **Tools → Options → Environment → Documents** → uncheck "Detect when file is changed outside the environment", or **Projects and Solutions → General** → "Reload externally modified projects" → *Always reload*. |
+| **Cross-project move rejected** | `file_move_many` refuses to move a file from one csproj to another. C# namespaces, InternalsVisibleTo, and ProjectReference resolution make this risky. | Move within a single project; for cross-project, the user does it manually. |
+| **C++ analyzer crashed silently** | libclang sometimes segfaults on malformed templates / preprocessor abuse. The analyzer process dies; the next call respawns it. | Run `mcp__vsmcp__cpp_analyzer_status(50)` to see the last 50 stderr lines and whether the process exited with a non-zero code. |
+| **Open Folder mode silent-empty** | Without a `.sln`, Roslyn-aware C# tools see only `<MiscFiles>` — `code_find_symbol` returns 0, `file_outline` may degrade. | Once per session in folder mode: `mcp__vsmcp__project_load_workspace_folder()`. (See "First call" section.) |
+
+---
+
 ## Destructive tools — review the diff before trusting
 
 These tools rewrite source. v1 implementations are best-effort; show the user the diff (or run them on a feature branch) before committing.

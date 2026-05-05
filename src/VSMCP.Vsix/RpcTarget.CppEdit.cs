@@ -76,6 +76,25 @@ internal sealed partial class RpcTarget
         return Math.Min(startLineIdx + 50, lines.Length - 1); // safety bail
     }
 
+    // ---- cpp_analyzer_status ----
+
+    public Task<CppAnalyzerStatusResult> CppAnalyzerStatusAsync(int recentLogLines, CancellationToken cancellationToken = default)
+    {
+        if (recentLogLines <= 0) recentLogLines = 50;
+        var (proc, logPath, lastError, spawnAttempted) = CppAnalyzerHost.Probe();
+        var result = new CppAnalyzerStatusResult
+        {
+            Spawned = spawnAttempted,
+            ProcessId = proc?.Id,
+            Alive = proc is not null && !proc.HasExited,
+            ExitCode = proc is not null && proc.HasExited ? proc.ExitCode : null,
+            LogPath = logPath,
+            LastError = lastError,
+        };
+        result.RecentLog.AddRange(CppAnalyzerHost.SnapshotRecent(recentLogLines));
+        return Task.FromResult(result);
+    }
+
     // ---- cpp_organize_includes ----
 
     private static readonly Regex s_organizeIncludeRx = new(

@@ -9,6 +9,16 @@ namespace VSMCP.Server;
 
 public sealed partial class VsmcpTools
 {
+    [McpServerTool(Name = "cpp.analyzer_status")]
+    [Description("Health check for the out-of-process VSMCP.CppAnalyzer sidecar. Returns whether it's been spawned, the process state (alive / exited with code), the log file path under %LOCALAPPDATA%\\VSMCP\\logs\\, and the last N captured stderr/stdout lines. Use after a cpp_* call fails to see what libclang said.")]
+    public async Task<CppAnalyzerStatusResult> CppAnalyzerStatus(
+        [Description("Number of recent log lines to include (default 50, cap 200).")] int recentLogLines = 50,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.CppAnalyzerStatusAsync(recentLogLines, ct).ConfigureAwait(false);
+    }
+
     [McpServerTool(Name = "cpp.read_member")]
     [Description("Read a single C/C++ class/struct member's body by name. Saves tokens vs file_read of the whole file. Uses cpp_outline to locate the line, then walks braces to find the closing '}'. C++ analog of code_read_member.")]
     public async Task<CppReadMemberResult> CppReadMember(

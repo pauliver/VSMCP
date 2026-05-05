@@ -24,6 +24,45 @@ internal static class CppAnalyzerHost
     private static Process? s_analyzerProc;
     private static NamedPipeClientStream? s_stream;
     private static JsonRpc? s_rpc;
+    private static string? s_logPath;
+    private static readonly System.Collections.Generic.LinkedList<string> s_recentLog = new();
+    private const int RecentLogCap = 200;
+    private static string? s_lastError;
+
+    /// <summary>Process-wide log path for the sidecar's stderr. Null until the first spawn.</summary>
+    public static string? LogPath { get { lock (s_lock) return s_logPath; } }
+
+    public static System.Collections.Generic.IReadOnlyList<string> SnapshotRecent(int max)
+    {
+        lock (s_lock)
+        {
+            var n = System.Math.Min(max, s_recentLog.Count);
+            var list = new System.Collections.Generic.List<string>(n);
+            var node = s_recentLog.Last;
+            while (node is not null && list.Count < n) { list.Insert(0, node.Value); node = node.Previous; }
+            return list;
+        }
+    }
+
+    public static (Process? proc, string? logPath, string? lastError, bool spawnAttempted) Probe()
+    {
+        lock (s_lock) return (s_analyzerProc, s_logPath, s_lastError, s_connectTask is not null);
+    }
+
+    private static void AppendLog(string line)
+    {
+        lock (s_lock)
+        {
+            s_recentLog.AddLast(line);
+            while (s_recentLog.Count > RecentLogCap) s_recentLog.RemoveFirst();
+            try
+            {
+                if (!string.IsNullOrEmpty(s_logPath))
+                    File.AppendAllText(s_logPath, line + Environment.NewLine);
+            }
+            catch { /* best-effort */ }
+        }
+    }
 
     public static Task<IVsmcpCppRpc> GetProxyAsync(CancellationToken ct)
     {
@@ -45,6 +84,17 @@ internal static class CppAnalyzerHost
             throw new VsmcpException(ErrorCodes.Unsupported,
                 $"CppAnalyzer executable not found. Expected at: {exePath ?? "<resolution failed>"}.");
 
+        // Initialize the sidecar log file under %LOCALAPPDATA%\VSMCP\logs\.
+        try
+        {
+            var logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VSMCP", "logs");
+            Directory.CreateDirectory(logDir);
+            s_logPath = Path.Combine(logDir, $"cppanalyzer.{vsPid}.log");
+            // Truncate / start fresh on a new spawn.
+            File.WriteAllText(s_logPath, $"--- CppAnalyzer spawn {DateTime.UtcNow:O} (vsPid={vsPid}) ---{Environment.NewLine}");
+        }
+        catch (Exception ex) { s_lastError = $"log-init failed: {ex.Message}"; }
+
         // Spawn the analyzer.
         var psi = new ProcessStartInfo(exePath)
         {
@@ -58,6 +108,18 @@ internal static class CppAnalyzerHost
         var proc = Process.Start(psi)
             ?? throw new VsmcpException(ErrorCodes.InteropFault, "Failed to start CppAnalyzer process.");
         s_analyzerProc = proc;
+
+        // Background-pump stderr + stdout into the rolling log so failures aren't silent.
+        proc.ErrorDataReceived += (_, e) => { if (e.Data is not null) AppendLog($"[stderr] {e.Data}"); };
+        proc.OutputDataReceived += (_, e) => { if (e.Data is not null) AppendLog($"[stdout] {e.Data}"); };
+        proc.BeginErrorReadLine();
+        proc.BeginOutputReadLine();
+        proc.Exited += (_, _) =>
+        {
+            try { AppendLog($"[exited] code={proc.ExitCode}"); } catch { }
+        };
+        proc.EnableRaisingEvents = true;
+        AppendLog($"[spawn] pid={proc.Id} exe={exePath}");
 
         // Connect to the analyzer's pipe (it took 60s for client connect; we have time).
         var stream = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
