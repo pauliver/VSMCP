@@ -4,6 +4,6 @@ namespace VSMCP.Shared;
 public static class ProtocolVersion
 {
     public const int Major = 0;
-    public const int Minor = 25;
+    public const int Minor = 27;
     public static string DisplayString => $"{Major}.{Minor}";
 }

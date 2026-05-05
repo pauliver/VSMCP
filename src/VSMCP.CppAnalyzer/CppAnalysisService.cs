@@ -38,5 +38,8 @@ internal sealed class CppAnalysisService : IVsmcpCppRpc, IDisposable
         return Task.CompletedTask;
     }
 
+    public Task<CppLocationListResult> FindReferencesInFilesAsync(string seedFile, int line, int column, string[] additionalFiles, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default)
+        => Task.FromResult(_analysis.FindReferencesInFiles(seedFile, line, column, additionalFiles, extraIncludes, extraDefines, cancellationToken));
+
     public void Dispose() => _analysis.Dispose();
 }

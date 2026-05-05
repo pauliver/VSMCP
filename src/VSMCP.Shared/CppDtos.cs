@@ -54,6 +54,69 @@ public sealed class CppFindSymbolResult
     public bool Truncated { get; set; }
 }
 
+public sealed class CppReadMemberResult
+{
+    public string File { get; set; } = "";
+    public string ClassName { get; set; } = "";
+    public string MemberName { get; set; } = "";
+    public int StartLine { get; set; }
+    public int EndLine { get; set; }
+    public string Content { get; set; } = "";
+    public string? Signature { get; set; }
+}
+
+public sealed class CppOrganizeIncludesResult
+{
+    public string File { get; set; } = "";
+    public bool Changed { get; set; }
+    public int IncludesCounted { get; set; }
+    public int Duplicates { get; set; }
+    public string? Diff { get; set; }
+}
+
+public sealed class CppSymbolSummaryEntry
+{
+    public CppFileDecl Decl { get; set; } = new();
+    public string? Type { get; set; }
+    public string? BriefComment { get; set; }
+}
+
+public sealed class CppSymbolSummaryResult
+{
+    public string Symbol { get; set; } = "";
+    public List<CppSymbolSummaryEntry> Entries { get; set; } = new();
+    public int Total { get; set; }
+}
+
+public sealed class CppReplaceMemberResult
+{
+    public string File { get; set; } = "";
+    public string ClassName { get; set; } = "";
+    public string MemberName { get; set; } = "";
+    public bool Replaced { get; set; }
+    public int StartLine { get; set; }
+    public int EndLine { get; set; }
+}
+
+public sealed class CppGenerateCtorResult
+{
+    public string File { get; set; } = "";
+    public string ClassName { get; set; } = "";
+    public bool Inserted { get; set; }
+    public int InsertedAtLine { get; set; }
+    public string Code { get; set; } = "";
+}
+
+public sealed class CppOverrideMemberResult
+{
+    public string File { get; set; } = "";
+    public string ClassName { get; set; } = "";
+    public string MethodName { get; set; } = "";
+    public bool Inserted { get; set; }
+    public int InsertedAtLine { get; set; }
+    public string Code { get; set; } = "";
+}
+
 // C++ Extensions
 
 public sealed class HeaderLookupResult

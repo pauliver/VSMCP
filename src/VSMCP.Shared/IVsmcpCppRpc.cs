@@ -26,4 +26,12 @@ public interface IVsmcpCppRpc
 
     /// <summary>Drop the cached translation unit for a file so the next query reparses (for editor-saves / source changes).</summary>
     Task InvalidateAsync(string file, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Cross-TU find references: discover the canonical USR at (seedFile, line, column), then walk
+    /// each file in <paramref name="additionalFiles"/> looking for cursors that resolve to the same
+    /// USR. Returns aggregated locations across all walked TUs. Slow first-call; subsequent calls
+    /// hit the cached TUs.
+    /// </summary>
+    Task<CppLocationListResult> FindReferencesInFilesAsync(string seedFile, int line, int column, string[] additionalFiles, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default);
 }

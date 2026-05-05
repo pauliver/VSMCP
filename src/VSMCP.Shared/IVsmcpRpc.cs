@@ -46,6 +46,14 @@ public interface IVsmcpRpc
     Task<CppQuickInfoResult> CppQuickInfoAsync(string file, int line, int column, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default);
     Task<CppLocationResult> CppGotoDefinitionAsync(string file, int line, int column, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default);
     Task CppInvalidateAsync(string file, CancellationToken cancellationToken = default);
+    Task<CppReadMemberResult> CppReadMemberAsync(string file, string className, string memberName, CancellationToken cancellationToken = default);
+    Task<CppOrganizeIncludesResult> CppOrganizeIncludesAsync(string file, CancellationToken cancellationToken = default);
+    Task<CppSymbolSummaryResult> CppSymbolSummaryAsync(string symbol, CancellationToken cancellationToken = default);
+    Task<CppReplaceMemberResult> CppReplaceMemberAsync(string file, string className, string memberName, string newCode, CancellationToken cancellationToken = default);
+    Task<CppGenerateCtorResult> CppGenerateConstructorAsync(string file, string className, IReadOnlyList<string>? memberNames, CancellationToken cancellationToken = default);
+    Task<CppOverrideMemberResult> CppOverrideMemberAsync(string file, string className, string methodName, string returnType, string parameters, CancellationToken cancellationToken = default);
+    Task<CppLocationListResult> CppFindReferencesSolutionAsync(string file, int line, int column, int maxFiles, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default);
+    Task<CppLocationListResult> CppRenameAsync(string file, int line, int column, string newName, CancellationToken cancellationToken = default);
 
     Task<ProjectLoadResult> ProjectLoadAsync(string csprojPath, CancellationToken cancellationToken = default);
     Task<ProjectLoadFolderResult> ProjectLoadWorkspaceFolderAsync(string? rootPath, CancellationToken cancellationToken = default);

@@ -155,6 +155,62 @@ internal sealed class CppAnalysis : IDisposable
         return result;
     }
 
+    public CppLocationListResult FindReferencesInFiles(string seedFile, int line, int column, string[] additionalFiles, string[]? extraIncludes, string[]? extraDefines, CancellationToken ct)
+    {
+        var result = new CppLocationListResult();
+        if (!File.Exists(seedFile)) return result;
+
+        // Resolve USR from the seed file.
+        string? rootUsr;
+        string? rootSpelling;
+        string? rootKind;
+        using (var seedLease = AcquireTu(seedFile, extraIncludes, extraDefines))
+        {
+            if (seedLease.Tu.Handle == IntPtr.Zero) return result;
+            var clangFile = seedLease.Tu.GetFile(seedFile);
+            var loc = seedLease.Tu.GetLocation(clangFile, (uint)line, (uint)column);
+            var cursor = seedLease.Tu.GetCursor(loc);
+            var canonical = cursor.CanonicalCursor;
+            if (canonical.IsNull) return result;
+            rootUsr = canonical.Usr.CString.ToString();
+            rootSpelling = canonical.Spelling.CString.ToString();
+            rootKind = canonical.Kind.ToString();
+        }
+        if (string.IsNullOrEmpty(rootUsr)) return result;
+
+        result.Spelling = rootSpelling;
+        result.Kind = rootKind;
+
+        // Always walk the seed file too.
+        var seen = new HashSet<string>();
+        var allFiles = new List<string> { seedFile };
+        if (additionalFiles is not null) allFiles.AddRange(additionalFiles);
+
+        foreach (var f in allFiles.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!File.Exists(f)) continue;
+            try
+            {
+                using var lease = AcquireTu(f, extraIncludes, extraDefines);
+                if (lease.Tu.Handle == IntPtr.Zero) continue;
+                var matches = WalkForReferences(lease.Tu, rootUsr!);
+                foreach (var m in matches)
+                {
+                    var key = $"{m.File}|{m.Line}|{m.Column}";
+                    if (seen.Add(key)) result.Locations.Add(m);
+                }
+            }
+            catch
+            {
+                // Skip TUs that fail to parse; report partial results.
+            }
+        }
+
+        result.Total = result.Locations.Count;
+        return result;
+    }
+
     public void Invalidate(string file)
     {
         var full = Path.GetFullPath(file);
