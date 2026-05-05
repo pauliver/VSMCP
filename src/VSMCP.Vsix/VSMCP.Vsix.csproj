@@ -84,6 +84,7 @@
     <Compile Include="FocusHelper.cs" />
     <Compile Include="FollowMode.cs" />
     <Compile Include="RpcTarget.FileMove.cs" />
+    <Compile Include="RpcTarget.EditMethod.cs" />
     <Compile Include="HostActivity.cs" />
     <Compile Include="StatusBarReporter.cs" />
     <Compile Include="VsmcpToolWindow.cs" />
@@ -113,6 +114,16 @@
     <Compile Include="RpcTarget.Enc.cs" />
     <Compile Include="CtxHelpers.cs" />
     <Compile Include="RpcTarget.Ctx.cs" />
+    <Compile Include="RpcTarget.BuildSummary.cs" />
+    <Compile Include="RpcTarget.TestSummary.cs" />
+    <Compile Include="RpcTarget.DiagnosticsGrouped.cs" />
+    <Compile Include="RpcTarget.FileReadIfChanged.cs" />
+    <Compile Include="RpcTarget.CodeDiff.cs" />
+    <Compile Include="RpcTarget.FileOutline.cs" />
+    <Compile Include="RpcTarget.FileInfo.cs" />
+    <Compile Include="RpcTarget.SymbolSummary.cs" />
+    <Compile Include="RpcTarget.Investigate.cs" />
+    <Compile Include="RpcTarget.SessionScope.cs" />
     <Compile Include="RpcTarget.CtxCrosscut.cs" />
   </ItemGroup>
 
