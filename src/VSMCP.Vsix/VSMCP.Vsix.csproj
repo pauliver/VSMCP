@@ -94,7 +94,7 @@
     <Compile Include="VsHelpers.cs" />
     <Compile Include="DiagEventCollector.cs" />
     <Compile Include="RpcTarget.DiagEvents.cs" />
-    <Compile Include="RpcTarget.FilesExtensions.cs" />
+    <Compile Include="RpcTarget.FileDiscovery.cs" />
     <Compile Include="RpcTarget.Search.cs" />
     <Compile Include="RpcTarget.Bulk.cs" />
     <Compile Include="RpcTarget.Edit.cs" />
