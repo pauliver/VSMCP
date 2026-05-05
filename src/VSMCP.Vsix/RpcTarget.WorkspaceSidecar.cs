@@ -17,6 +17,11 @@ internal sealed partial class RpcTarget
     /// </summary>
     private static WorkspaceSidecar? s_sidecar;
     private static readonly object s_sidecarLock = new();
+    // Set of root paths we've auto-loaded so OnSolutionOpened doesn't redo a folder
+    // every time the user closes/reopens the same workspace.
+    private static readonly System.Collections.Generic.HashSet<string> s_autoLoadedRoots
+        = new(StringComparer.OrdinalIgnoreCase);
+    private static int s_autoLoadHooked; // 0 = not yet, 1 = wired
 
     private static WorkspaceSidecar Sidecar
     {
@@ -24,6 +29,48 @@ internal sealed partial class RpcTarget
         {
             lock (s_sidecarLock) return s_sidecar ??= new WorkspaceSidecar();
         }
+    }
+
+    /// <summary>
+    /// Invoked once per process by RpcTarget's ctor to wire the workspace-watcher's
+    /// SolutionOpened event into the sidecar auto-loader. Idempotent (interlocked guard).
+    /// Also fires a one-shot probe in case the workspace was already open before we hooked
+    /// (e.g., user launched VS directly with a folder argument).
+    /// </summary>
+    internal void TryEnableAutoLoad(WorkspaceWatcher watcher)
+    {
+        if (System.Threading.Interlocked.Exchange(ref s_autoLoadHooked, 1) != 0) return;
+        watcher.SolutionOpened += root => MaybeAutoLoadRoot(root);
+
+        // One-shot probe: if VS is already in Open Folder mode, kick off a load.
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _jtf.SwitchToMainThreadAsync();
+                if (await _package.GetServiceAsync(typeof(EnvDTE.DTE)) is DTE2 dte
+                    && dte.Solution is { IsOpen: true } sln
+                    && !string.IsNullOrEmpty(sln.FullName)
+                    && Directory.Exists(sln.FullName))
+                {
+                    var snapshot = sln.FullName;
+                    // Hand off to a worker thread; LoadFolder walks disk.
+                    _ = Task.Run(() => MaybeAutoLoadRoot(snapshot));
+                }
+            }
+            catch { /* best-effort */ }
+        });
+    }
+
+    private static void MaybeAutoLoadRoot(string? root)
+    {
+        if (string.IsNullOrEmpty(root)) return;
+        if (!Directory.Exists(root)) return;
+        lock (s_sidecarLock)
+        {
+            if (!s_autoLoadedRoots.Add(root!)) return;
+        }
+        try { Sidecar.LoadFolder(root!); } catch { /* best-effort */ }
     }
 
     /// <summary>Sidecar fall-through used by FindDocument when the live workspace doesn't have the file.</summary>

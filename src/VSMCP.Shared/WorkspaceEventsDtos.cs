@@ -11,6 +11,9 @@ namespace VSMCP.Shared
         DocumentClosed = 5,
         ActiveDocumentChanged = 6,
         DebugStateChanged = 7,
+        Generic = 8,
+        SolutionOpened = 9,
+        SolutionClosed = 10,
     }
 public sealed class WorkspaceEvent
 {

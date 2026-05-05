@@ -28,6 +28,14 @@ internal sealed class WorkspaceWatcher : IDisposable
     private int _totalCollected;
     private readonly SemaphoreSlim _newEvent = new(0, 1);
 
+    /// <summary>
+    /// Optional callback fired (off the main thread) when a Solution/Open Folder workspace
+    /// finishes opening. RpcTarget.WorkspaceSidecar wires this up to lazy-trigger
+    /// Sidecar.LoadFolder on first use, so Open Folder mode doesn't require a manual
+    /// project.load_workspace_folder call.
+    /// </summary>
+    public event Action<string>? SolutionOpened;
+
     public WorkspaceWatcher(EnvDTE80.DTE2 dte)
     {
         _dte = dte;
@@ -42,6 +50,11 @@ internal sealed class WorkspaceWatcher : IDisposable
             _docEvents.DocumentSaved += OnDocumentSaved;
             _docEvents.DocumentOpened += OnDocumentOpened;
             _docEvents.DocumentClosing += OnDocumentClosing;
+        }
+        if (_solEvents is not null)
+        {
+            _solEvents.Opened += OnSolutionOpened;
+            _solEvents.AfterClosing += OnSolutionClosed;
         }
         if (_buildEvents is not null)
         {
@@ -142,6 +155,32 @@ internal sealed class WorkspaceWatcher : IDisposable
     private void OnEnterBreakMode(EnvDTE.dbgEventReason reason, ref EnvDTE.dbgExecutionAction action) =>
         Add(WorkspaceEventKind.DebugStateChanged, $"Break mode ({reason})");
 
+    private void OnSolutionOpened()
+    {
+        try
+        {
+            string? root = null;
+            try { root = _dte.Solution?.FullName; } catch { }
+            Add(WorkspaceEventKind.SolutionOpened, $"Solution opened: {root ?? "<unknown>"}", root);
+            if (!string.IsNullOrEmpty(root))
+            {
+                // Fire on a background thread; the handler walks disk and loads csprojs into
+                // the sidecar AdhocWorkspace, both of which would block the UI thread.
+                var snapshot = root;
+                Task.Run(() =>
+                {
+                    try { SolutionOpened?.Invoke(snapshot); } catch { }
+                });
+            }
+        }
+        catch { }
+    }
+
+    private void OnSolutionClosed()
+    {
+        try { Add(WorkspaceEventKind.SolutionClosed, "Solution closed"); } catch { }
+    }
+
     private void OnWindowActivated(EnvDTE.Window gotFocus, EnvDTE.Window lostFocus)
     {
         try
@@ -163,6 +202,11 @@ internal sealed class WorkspaceWatcher : IDisposable
                 _docEvents.DocumentSaved -= OnDocumentSaved;
                 _docEvents.DocumentOpened -= OnDocumentOpened;
                 _docEvents.DocumentClosing -= OnDocumentClosing;
+            }
+            if (_solEvents is not null)
+            {
+                _solEvents.Opened -= OnSolutionOpened;
+                _solEvents.AfterClosing -= OnSolutionClosed;
             }
             if (_buildEvents is not null)
             {
