@@ -365,8 +365,10 @@ internal sealed partial class RpcTarget
             if (!m.Success) continue;
             var name = m.Groups["name"].Value;
             var type = m.Groups["type"].Value.Trim();
-            // Drop modifiers from the type prefix.
-            type = Regex.Replace(type, @"\b(?:static|const|mutable|volatile|inline|constexpr)\b", "").Trim();
+            // Drop access/storage modifiers from the type prefix, but KEEP const/volatile —
+            // they're part of the type signature and matter for the generated parameter (e.g.
+            // 'const char*' must stay const in the constructor parameter).
+            type = Regex.Replace(type, @"\b(?:static|mutable|inline|constexpr)\b", "").Trim();
             if (string.IsNullOrEmpty(type)) continue;
             if (memberNames is not null && memberNames.Count > 0 && !memberNames.Contains(name)) continue;
             fields.Add((type, name));

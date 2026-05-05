@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -76,9 +77,37 @@ internal sealed partial class RpcTarget
     {
         var hits = new List<(CppDecl decl, string file)>(capacity: Math.Min(maxResults, 256));
 
-        // FileListAsync glob covers .h / .hpp / .hxx / .hh / .c / .cpp / .cc / .cxx.
+        // 1) Enumerate via the loaded projects (DTE).
         var files = await FileListAsync(null, null, "*.{h,hpp,hxx,hh,c,cpp,cc,cxx}",
             new[] { "file" }, 50_000, ct).ConfigureAwait(false);
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in files.Files) seen.Add(f.Path);
+
+        // 2) Also walk the solution-folder root for C++ files not in any project (loose headers,
+        // test fixtures, generated files outside csproj membership). Without this the search is
+        // blind to anything VS doesn't enumerate via DTE.
+        await _jtf.SwitchToMainThreadAsync(ct);
+        try
+        {
+            if (await _package.GetServiceAsync(typeof(EnvDTE.DTE)) is EnvDTE80.DTE2 dte
+                && dte.Solution is { IsOpen: true } sln
+                && !string.IsNullOrEmpty(sln.FullName))
+            {
+                var root = sln.FullName;
+                if (!Directory.Exists(root)) root = Path.GetDirectoryName(root);
+                root = AscendToRepoRoot(root);
+                if (!string.IsNullOrEmpty(root) && Directory.Exists(root))
+                {
+                    foreach (var p in WalkCppFilesUnder(root!))
+                    {
+                        if (seen.Add(p))
+                            files.Files.Add(new FileListItem { Path = p, Kind = "file" });
+                    }
+                }
+            }
+        }
+        catch { /* best-effort */ }
 
         foreach (var f in files.Files)
         {
@@ -97,5 +126,48 @@ internal sealed partial class RpcTarget
         }
 
         return hits;
+    }
+
+    private static readonly HashSet<string> s_cppExts = new(StringComparer.OrdinalIgnoreCase)
+    { ".h", ".hpp", ".hxx", ".hh", ".c", ".cpp", ".cc", ".cxx" };
+
+    private static readonly HashSet<string> s_skipDirs = new(StringComparer.OrdinalIgnoreCase)
+    { "bin", "obj", ".git", ".vs", "node_modules", "packages", "Build", "out", "Release", "Debug" };
+
+    private static string? AscendToRepoRoot(string? start)
+    {
+        if (string.IsNullOrEmpty(start)) return start;
+        var dir = start;
+        for (int i = 0; i < 8 && !string.IsNullOrEmpty(dir); i++)
+        {
+            if (Directory.Exists(Path.Combine(dir!, ".git"))) return dir;
+            var parent = Path.GetDirectoryName(dir);
+            if (string.IsNullOrEmpty(parent) || string.Equals(parent, dir, StringComparison.OrdinalIgnoreCase)) break;
+            dir = parent;
+        }
+        return start;
+    }
+
+    private static IEnumerable<string> WalkCppFilesUnder(string root)
+    {
+        var stack = new Stack<string>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var dir = stack.Pop();
+            string[] files;
+            try { files = Directory.GetFiles(dir); } catch { continue; }
+            foreach (var f in files)
+                if (s_cppExts.Contains(Path.GetExtension(f))) yield return f;
+
+            string[] subs;
+            try { subs = Directory.GetDirectories(dir); } catch { continue; }
+            foreach (var s in subs)
+            {
+                var name = Path.GetFileName(s);
+                if (s_skipDirs.Contains(name)) continue;
+                stack.Push(s);
+            }
+        }
     }
 }

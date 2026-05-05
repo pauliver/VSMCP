@@ -32,9 +32,12 @@ internal sealed partial class RpcTarget
 
     // ---- cpp_inheritance ----
 
+    // Matches across newlines so multi-line class declarations work:
+    //   class Sample : public SampleBase
+    //   {
     private static readonly Regex s_inheritanceRx = new(
-        @"(?<kind>class|struct)\s+(?<name>[A-Za-z_]\w*)\s*(?:\:[ \t]*(?<bases>[^{;]+))?\s*\{",
-        RegexOptions.Compiled);
+        @"\b(?<kind>class|struct)\s+(?<name>[A-Za-z_]\w*)\s*(?:\:\s*(?<bases>[^{;]+))?\s*\{",
+        RegexOptions.Compiled | RegexOptions.Singleline);
 
     public async Task<CppInheritanceResult> CppInheritanceAsync(string file, string className, int maxDepth, CancellationToken cancellationToken = default)
     {
@@ -54,15 +57,22 @@ internal sealed partial class RpcTarget
         if (string.IsNullOrEmpty(file) || !File.Exists(file)) return node;
 
         node.File = file;
-        // Find the class declaration line + parse its inheritance list.
-        string[] lines;
-        try { lines = File.ReadAllLines(file!); } catch { return node; }
+        // Find the class declaration + parse its inheritance list. The regex spans
+        // newlines (Singleline mode) so multi-line declarations like
+        //   class Foo : public Bar
+        //   {
+        // are matched.
+        string text;
+        try { text = File.ReadAllText(file!); } catch { return node; }
 
-        for (int i = 0; i < lines.Length; i++)
+        foreach (Match m in s_inheritanceRx.Matches(text))
         {
-            var m = s_inheritanceRx.Match(lines[i]);
-            if (!m.Success || m.Groups["name"].Value != className) continue;
-            node.Line = i + 1;
+            if (m.Groups["name"].Value != className) continue;
+            // Convert offset to 1-based line number.
+            int line = 1;
+            for (int i = 0; i < m.Index && i < text.Length; i++)
+                if (text[i] == '\n') line++;
+            node.Line = line;
             var basesStr = m.Groups["bases"].Value.Trim();
             if (string.IsNullOrEmpty(basesStr)) break;
             foreach (var b in ParseBaseList(basesStr))

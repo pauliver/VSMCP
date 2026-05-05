@@ -19,8 +19,11 @@ internal static class CppOutlineParser
         @"^\s*namespace\s+(?<name>[A-Za-z_][\w:]*(?:::[A-Za-z_]\w*)*)\s*\{?",
         RegexOptions.Compiled);
 
+    // No terminator required — class headers can span multiple lines (`class Foo : public Bar`
+    // followed by `{` on the next line). The pending-class state machine in Parse() decides
+    // when to push class scope based on the actual `{` location.
     private static readonly Regex RxClassStructUnion = new(
-        @"^\s*(?:template\s*<[^>]+>\s*)?(?:export\s+)?(?<kind>class|struct|union)\s+(?:[A-Z_]+_API\s+)?(?<name>[A-Za-z_]\w*)\b(?<rest>[^;{]*)(?<terminator>[{;])",
+        @"^\s*(?:template\s*<[^>]+>\s*)?(?:export\s+)?(?<kind>class|struct|union)\s+(?:[A-Z_]+_API\s+)?(?<name>[A-Za-z_]\w*)\b(?![A-Za-z_0-9])",
         RegexOptions.Compiled);
 
     private static readonly Regex RxEnum = new(
@@ -35,10 +38,12 @@ internal static class CppOutlineParser
         @"^\s*using\s+(?<name>[A-Za-z_]\w*)\s*=",
         RegexOptions.Compiled);
 
-    // Function declaration / definition: return type + name + parens + opt const + ; or {.
-    // Best-effort — won't catch every templated function but catches typical signatures.
+    // Function declaration / definition: return type + name + parens + opt trailing modifiers
+    // (const, noexcept, override, final, = default, = delete, = 0). Trailing modifiers can
+    // appear in sequence separated by whitespace (e.g. `const noexcept`); the wrapper-and-star
+    // pattern allows zero or more.
     private static readonly Regex RxFunction = new(
-        @"^\s*(?:template\s*<[^>]+>\s*)?(?<sig>(?:inline\s+|static\s+|virtual\s+|constexpr\s+|explicit\s+|friend\s+|extern(?:\s*""[^""]*"")?\s+|noexcept\s+|\[\[[^\]]+\]\]\s+)*[\w:<>,\s\*\&]+?\s+(?<name>[A-Za-z_]\w*)\s*\([^)]*\)\s*(?:const|noexcept|override|final|=\s*default|=\s*delete|=\s*0)*)\s*[{;]",
+        @"^\s*(?:template\s*<[^>]+>\s*)?(?<sig>(?:inline\s+|static\s+|virtual\s+|constexpr\s+|explicit\s+|friend\s+|extern(?:\s*""[^""]*"")?\s+|noexcept\s+|\[\[[^\]]+\]\]\s+)*[\w:<>,\s\*\&]+?\s+(?<name>[A-Za-z_]\w*)\s*\([^)]*\)(?:\s+(?:const|noexcept|override|final|throw\s*\([^)]*\))|\s*=\s*(?:default|delete|0))*)\s*[{;]",
         RegexOptions.Compiled);
 
     public static CppOutlineResult Parse(string filePath, int maxDecls = 5000)
@@ -53,6 +58,13 @@ internal static class CppOutlineParser
         int braceDepth = 0;
         bool inBlockComment = false;
 
+        // Pending class state — set when a class header is detected without an open brace
+        // on the same line. Resolved when the next line shows a `{` (push to classStack)
+        // or `;` (forward declaration; drop pending).
+        string? pendingClassKind = null;
+        string? pendingClassName = null;
+        int pendingClassDepth = 0;
+
         for (int i = 0; i < lines.Length; i++)
         {
             if (result.Declarations.Count >= maxDecls)
@@ -63,6 +75,23 @@ internal static class CppOutlineParser
 
             var rawLine = lines[i];
             var line = StripComments(rawLine, ref inBlockComment);
+
+            // Resolve pending class against this line BEFORE matching new declarations.
+            if (pendingClassName is not null)
+            {
+                int openIdx = line.IndexOf('{');
+                int closeIdx = line.IndexOf(';');
+                if (openIdx >= 0 && (closeIdx < 0 || openIdx < closeIdx))
+                {
+                    classStack.Push((pendingClassKind!, pendingClassName, pendingClassDepth));
+                    pendingClassKind = pendingClassName = null;
+                }
+                else if (closeIdx >= 0)
+                {
+                    pendingClassKind = pendingClassName = null;
+                }
+            }
+
             if (string.IsNullOrWhiteSpace(line)) { CountBraces(line, ref braceDepth); PopScopes(braceDepth, nsStack, classStack); continue; }
             if (line.TrimStart().StartsWith("#", StringComparison.Ordinal))
             {
@@ -79,11 +108,46 @@ internal static class CppOutlineParser
                 PopScopes(braceDepth, nsStack, classStack);
                 continue;
             }
-            if (TryMatchClass(line, i + 1, ContainerString(nsStack, classStack), classStack, braceDepth, result))
+            // Class/struct/union match — inlined here so we can update the pending-class state
+            // when the opening brace is on a later line.
             {
-                CountBraces(line, ref braceDepth);
-                PopScopes(braceDepth, nsStack, classStack);
-                continue;
+                var classMatch = RxClassStructUnion.Match(line);
+                if (classMatch.Success)
+                {
+                    var kind = classMatch.Groups["kind"].Value;
+                    var name = classMatch.Groups["name"].Value;
+                    result.Declarations.Add(new CppDecl
+                    {
+                        Kind = kind,
+                        Name = name,
+                        Container = ContainerString(nsStack, classStack),
+                        Line = i + 1,
+                        Signature = line.Trim(),
+                    });
+                    // Decide if this is a definition (`{` on this line, after the match), forward
+                    // decl (`;` next), or pending (header continues to a later line).
+                    int restStart = classMatch.Index + classMatch.Length;
+                    int openIdx = line.IndexOf('{', restStart);
+                    int closeIdx = line.IndexOf(';', restStart);
+                    if (openIdx >= 0 && (closeIdx < 0 || openIdx < closeIdx))
+                    {
+                        classStack.Push((kind, name, braceDepth));
+                    }
+                    else if (closeIdx >= 0)
+                    {
+                        // Forward decl; do nothing.
+                    }
+                    else
+                    {
+                        // Pending — opener will appear on a later line.
+                        pendingClassKind = kind;
+                        pendingClassName = name;
+                        pendingClassDepth = braceDepth;
+                    }
+                    CountBraces(line, ref braceDepth);
+                    PopScopes(braceDepth, nsStack, classStack);
+                    continue;
+                }
             }
             if (TryMatchEnum(line, i + 1, ContainerString(nsStack, classStack), result))
             {

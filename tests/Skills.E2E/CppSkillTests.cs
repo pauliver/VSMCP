@@ -119,6 +119,9 @@ public sealed class CppSkillTests : IDisposable
     {
         Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
         var rpc = await _f.ConnectAsync();
+        // Destructive tests on temp files: disable Follow so VS doesn't auto-open the temp file
+        // and trap edits in an unsaved buffer (test would read stale disk).
+        await rpc.VsSetAutoFocusAsync(false);
 
         // Build a temp file with shuffled, duplicated includes.
         var tempDir = CopyFixturesToTemp();
@@ -140,6 +143,9 @@ public sealed class CppSkillTests : IDisposable
         Assert.Equal(1, result.Duplicates);
 
         var after = File.ReadAllText(path);
+        Console.WriteLine("=== AFTER organize_includes ===");
+        Console.WriteLine(after);
+        Console.WriteLine("=== END ===");
         // System includes (<>) should come before quoted includes ("").
         var systemIdx = after.IndexOf("#include <map>", StringComparison.Ordinal);
         var quotedIdx = after.IndexOf("#include \"bar.hpp\"", StringComparison.Ordinal);
@@ -153,6 +159,7 @@ public sealed class CppSkillTests : IDisposable
     {
         Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
         var rpc = await _f.ConnectAsync();
+        await rpc.VsSetAutoFocusAsync(false);
 
         // Fresh struct fixture so the test is hermetic.
         var tempDir = CopyFixturesToTemp();
@@ -183,6 +190,7 @@ public sealed class CppSkillTests : IDisposable
     {
         Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
         var rpc = await _f.ConnectAsync();
+        await rpc.VsSetAutoFocusAsync(false);
 
         var tempDir = CopyFixturesToTemp();
         var path = Path.Combine(tempDir, "Derived.hpp");
