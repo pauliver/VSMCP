@@ -124,6 +124,8 @@
     <Compile Include="RpcTarget.SymbolSummary.cs" />
     <Compile Include="RpcTarget.Investigate.cs" />
     <Compile Include="RpcTarget.SessionScope.cs" />
+    <Compile Include="WorkspaceSidecar.cs" />
+    <Compile Include="RpcTarget.WorkspaceSidecar.cs" />
   </ItemGroup>
 
   <ItemGroup>

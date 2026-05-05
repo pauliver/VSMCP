@@ -33,6 +33,12 @@ public interface IVsmcpRpc
     Task ProjectFileRemoveAsync(string projectId, string path, bool deleteFromDisk, CancellationToken cancellationToken = default);
     Task<ProjectItemRef> ProjectFolderCreateAsync(string projectId, string path, CancellationToken cancellationToken = default);
 
+    // Open Folder mode sidecar — load loose .csprojs into an in-process workspace so
+    // Roslyn-aware tools (file_outline, code_find_symbol, etc.) work even without a .sln.
+    Task<ProjectLoadResult> ProjectLoadAsync(string csprojPath, CancellationToken cancellationToken = default);
+    Task<ProjectLoadFolderResult> ProjectLoadWorkspaceFolderAsync(string? rootPath, CancellationToken cancellationToken = default);
+    Task<SidecarStatusResult> ProjectSidecarStatusAsync(CancellationToken cancellationToken = default);
+
     // -------- File / editor --------
     Task<FileReadResult> FileReadAsync(string path, FileRange? range, CancellationToken cancellationToken = default);
     Task<FileWriteResult> FileWriteAsync(string path, string content, CancellationToken cancellationToken = default);

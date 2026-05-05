@@ -360,7 +360,7 @@ internal sealed partial class RpcTarget
         var ws = await GetWorkspaceAsync(cancellationToken);
         var result = new ClassesResult();
 
-        foreach (var project in ws.CurrentSolution.Projects)
+        foreach (var project in EnumerateAllProjects(ws))
         {
             if (projectId is not null
                 && !string.Equals(project.Name, projectId, StringComparison.OrdinalIgnoreCase)
@@ -439,7 +439,7 @@ internal sealed partial class RpcTarget
         if (string.IsNullOrWhiteSpace(className)) throw new VsmcpException(ErrorCodes.NotFound, "className is required.");
 
         var ws = await GetWorkspaceAsync(cancellationToken);
-        var doc = FindDocument(ws.CurrentSolution, file)
+        var doc = FindDocumentAnywhere(ws.CurrentSolution, file)
             ?? throw new VsmcpException(ErrorCodes.NotFound, $"File not found: {file}");
 
         var result = new MembersResult();
@@ -501,7 +501,7 @@ internal sealed partial class RpcTarget
         if (string.IsNullOrWhiteSpace(className)) throw new VsmcpException(ErrorCodes.NotFound, "className is required.");
 
         var ws = await GetWorkspaceAsync(cancellationToken);
-        var doc = FindDocument(ws.CurrentSolution, file)
+        var doc = FindDocumentAnywhere(ws.CurrentSolution, file)
             ?? throw new VsmcpException(ErrorCodes.NotFound, $"File not found: {file}");
 
         var root = await doc.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);

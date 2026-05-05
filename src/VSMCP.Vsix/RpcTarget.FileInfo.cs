@@ -42,7 +42,7 @@ namespace VSMCP.Vsix
             try
             {
                 var ws = await GetWorkspaceAsync(cancellationToken);
-                var doc = FindDocument(ws.CurrentSolution, fullPath);
+                var doc = FindDocumentAnywhere(ws.CurrentSolution, fullPath);
                 if (doc is not null)
                 {
                     result.Project = doc.Project.Name;
@@ -58,7 +58,7 @@ namespace VSMCP.Vsix
                 }
             }
             catch
-            { /* non-Roslyn file — leave Project/Namespace null */
+            { /* non-Roslyn file â€” leave Project/Namespace null */
             }
 
             // Heuristics.

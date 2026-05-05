@@ -34,7 +34,7 @@ namespace VSMCP.Vsix
             if (first.Location is null)
                 return result;
             var ws = await GetWorkspaceAsync(cancellationToken);
-            var doc = FindDocument(ws.CurrentSolution, first.Location.File);
+            var doc = FindDocumentAnywhere(ws.CurrentSolution, first.Location.File);
             if (doc is null)
                 return result;
             var sm = await doc.GetSemanticModelAsync(cancellationToken).ConfigureAwait(false);
@@ -98,7 +98,7 @@ namespace VSMCP.Vsix
                 }
             }
 
-            // Tests: heuristic — references whose containing type's name contains "Test"
+            // Tests: heuristic â€” references whose containing type's name contains "Test"
             if (includeTests && sym is not null)
             {
                 try

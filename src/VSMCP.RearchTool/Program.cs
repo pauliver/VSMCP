@@ -65,6 +65,37 @@ internal static class Program
                     Console.Error.WriteLine($"[move-many] total={result.Total} moved={result.MovedCount} csprojEdits={result.CsprojEdits} skipped={result.SkippedCount}");
                     return 0;
                 }
+                case "load-folder":
+                {
+                    var root = args.LastOrDefault(a => !a.StartsWith("--") && a != "load-folder");
+                    var r = await conn.Proxy.ProjectLoadWorkspaceFolderAsync(root).ConfigureAwait(false);
+                    Console.WriteLine(JsonSerializer.Serialize(r, new JsonSerializerOptions { WriteIndented = true }));
+                    Console.Error.WriteLine($"[load-folder] root={r.Root} projects={r.Projects.Count} totalDocs={r.TotalDocumentsAdded}");
+                    return 0;
+                }
+                case "sidecar-status":
+                {
+                    var r = await conn.Proxy.ProjectSidecarStatusAsync().ConfigureAwait(false);
+                    Console.WriteLine(JsonSerializer.Serialize(r, new JsonSerializerOptions { WriteIndented = true }));
+                    return 0;
+                }
+                case "find-symbol":
+                {
+                    var name = args.LastOrDefault(a => !a.StartsWith("--") && a != "find-symbol")
+                        ?? throw new InvalidOperationException("provide symbol name");
+                    var r = await conn.Proxy.CodeFindSymbolAsync(name, null, 50, default).ConfigureAwait(false);
+                    Console.WriteLine(JsonSerializer.Serialize(r, new JsonSerializerOptions { WriteIndented = true }));
+                    Console.Error.WriteLine($"[find-symbol] name={name} matches={r.Matches.Count}");
+                    return 0;
+                }
+                case "file-outline":
+                {
+                    var file = args.LastOrDefault(a => !a.StartsWith("--") && a != "file-outline")
+                        ?? throw new InvalidOperationException("provide file path");
+                    var r = await conn.Proxy.FileOutlineAsync(file, default).ConfigureAwait(false);
+                    Console.WriteLine(JsonSerializer.Serialize(r, new JsonSerializerOptions { WriteIndented = true }));
+                    return 0;
+                }
                 case "move-methods":
                 {
                     var jsonPath = args.LastOrDefault(a => !a.StartsWith("--") && a != "move-methods")
@@ -145,6 +176,10 @@ internal static class Program
         Console.WriteLine("vsmcp-rearch move-many [--no-dry-run] [--no-update-project] <mapping.json>");
         Console.WriteLine("vsmcp-rearch move-types <moves.json>   # [{File, TypeName, NewFile, NewNamespace?, AppendIfExists?}]");
         Console.WriteLine("vsmcp-rearch move-methods <moves.json> # [{File, MethodName, NewFile, ContainerType?, AppendIfExists?}]");
+        Console.WriteLine("vsmcp-rearch load-folder [rootPath]    # Open-Folder-mode csproj autoload");
+        Console.WriteLine("vsmcp-rearch sidecar-status            # what's loaded in the sidecar workspace");
+        Console.WriteLine("vsmcp-rearch find-symbol <name>        # CodeFindSymbol — sanity check after load-folder");
+        Console.WriteLine("vsmcp-rearch file-outline <file>       # FileOutline — sanity check after load-folder");
     }
 
     public sealed class MoveTypeRequest

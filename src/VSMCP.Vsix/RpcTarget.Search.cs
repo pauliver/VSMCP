@@ -80,7 +80,7 @@ internal sealed partial class RpcTarget
         var rx = GlobToRegex(namePattern);
         var result = new SymbolSearchResultContainer();
 
-        foreach (var project in ws.CurrentSolution.Projects)
+        foreach (var project in EnumerateAllProjects(ws))
         {
             cancellationToken.ThrowIfCancellationRequested();
             var hits = await SymbolFinder.FindDeclarationsAsync(
@@ -122,7 +122,7 @@ internal sealed partial class RpcTarget
         var rx = string.IsNullOrEmpty(namePattern) ? null : GlobToRegex(namePattern!);
         var result = new ClassSearchResultContainer();
 
-        foreach (var project in ws.CurrentSolution.Projects)
+        foreach (var project in EnumerateAllProjects(ws))
         {
             cancellationToken.ThrowIfCancellationRequested();
             var compilation = await project.GetCompilationAsync(cancellationToken).ConfigureAwait(false);
@@ -182,7 +182,7 @@ internal sealed partial class RpcTarget
         var rx = GlobToRegex(namePattern);
         var result = new MemberSearchResultContainer();
 
-        foreach (var project in ws.CurrentSolution.Projects)
+        foreach (var project in EnumerateAllProjects(ws))
         {
             cancellationToken.ThrowIfCancellationRequested();
             var compilation = await project.GetCompilationAsync(cancellationToken).ConfigureAwait(false);
@@ -219,7 +219,7 @@ internal sealed partial class RpcTarget
     {
         if (string.IsNullOrEmpty(file)) throw new VsmcpException(ErrorCodes.NotFound, "file is required.");
         var ws = await GetWorkspaceAsync(cancellationToken);
-        var doc = FindDocument(ws.CurrentSolution, file)
+        var doc = FindDocumentAnywhere(ws.CurrentSolution, file)
             ?? throw new VsmcpException(ErrorCodes.NotFound, $"File not found: {file}");
 
         var text = await doc.GetTextAsync(cancellationToken).ConfigureAwait(false);

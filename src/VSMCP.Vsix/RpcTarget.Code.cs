@@ -34,6 +34,17 @@ internal sealed partial class RpcTarget
         return id is null ? null : solution.GetDocument(id);
     }
 
+    /// <summary>
+    /// FindDocument with sidecar fall-through for Open Folder mode. When the live
+    /// VisualStudioWorkspace doesn't have the file (no .sln loaded, csproj-as-MiscFile, etc.),
+    /// look it up in the WorkspaceSidecar's AdhocWorkspace if a project has been loaded there
+    /// via project.load_workspace_folder.
+    /// </summary>
+    internal Document? FindDocumentAnywhere(Solution solution, string filePath)
+    {
+        return FindDocument(solution, filePath) ?? FindDocumentInSidecar(filePath);
+    }
+
     private static int PositionFromLineCol(SourceText text, int line, int column)
     {
         if (line < 1) line = 1;
@@ -75,7 +86,7 @@ internal sealed partial class RpcTarget
     {
         if (string.IsNullOrWhiteSpace(file)) throw new VsmcpException(ErrorCodes.NotFound, "file is required.");
         var ws = await GetWorkspaceAsync(cancellationToken);
-        var doc = FindDocument(ws.CurrentSolution, file)
+        var doc = FindDocumentAnywhere(ws.CurrentSolution, file)
             ?? throw new VsmcpException(ErrorCodes.NotFound, $"File not part of any loaded project: {file}");
 
         var result = new SymbolsResult { File = file, Language = doc.Project.Language };
@@ -160,7 +171,7 @@ internal sealed partial class RpcTarget
     {
         if (position is null) throw new VsmcpException(ErrorCodes.NotFound, "position is required.");
         var ws = await GetWorkspaceAsync(cancellationToken);
-        var doc = FindDocument(ws.CurrentSolution, position.File)
+        var doc = FindDocumentAnywhere(ws.CurrentSolution, position.File)
             ?? throw new VsmcpException(ErrorCodes.NotFound, $"File not part of any loaded project: {position.File}");
 
         var text = await doc.GetTextAsync(cancellationToken).ConfigureAwait(false);
@@ -181,7 +192,7 @@ internal sealed partial class RpcTarget
         if (maxResults > 5000) maxResults = 5000;
 
         var ws = await GetWorkspaceAsync(cancellationToken);
-        var doc = FindDocument(ws.CurrentSolution, position.File)
+        var doc = FindDocumentAnywhere(ws.CurrentSolution, position.File)
             ?? throw new VsmcpException(ErrorCodes.NotFound, $"File not part of any loaded project: {position.File}");
 
         var text = await doc.GetTextAsync(cancellationToken).ConfigureAwait(false);
@@ -280,7 +291,7 @@ internal sealed partial class RpcTarget
     {
         if (position is null) throw new VsmcpException(ErrorCodes.NotFound, "position is required.");
         var ws = await GetWorkspaceAsync(cancellationToken);
-        var doc = FindDocument(ws.CurrentSolution, position.File)
+        var doc = FindDocumentAnywhere(ws.CurrentSolution, position.File)
             ?? throw new VsmcpException(ErrorCodes.NotFound, $"File not part of any loaded project: {position.File}");
 
         var text = await doc.GetTextAsync(cancellationToken).ConfigureAwait(false);

@@ -34,7 +34,7 @@ public async Task<GroupedDiagnosticsResult> CodeVerifyFilesAsync(
         foreach (var f in files)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var doc = FindDocument(ws.CurrentSolution, f);
+            var doc = FindDocumentAnywhere(ws.CurrentSolution, f);
             if (doc is null) continue;
             var sm = await doc.GetSemanticModelAsync(cancellationToken).ConfigureAwait(false);
             if (sm is null) continue;
@@ -79,7 +79,7 @@ private static string? ExtractFirstQuoted(string msg)
 private static string? TrimMsg(string msg)
     {
         if (string.IsNullOrEmpty(msg)) return null;
-        return msg.Length <= 80 ? msg : msg.Substring(0, 79) + "…";
+        return msg.Length <= 80 ? msg : msg.Substring(0, 79) + "â€¦";
     }
     }
 }

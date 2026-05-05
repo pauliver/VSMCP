@@ -15,7 +15,7 @@ namespace VSMCP.Vsix;
 
 internal sealed partial class RpcTarget
 {
-    // -------- M18: Semantic Code Layer — symbol lookup, member read/add, wrappers --------
+    // -------- M18: Semantic Code Layer â€” symbol lookup, member read/add, wrappers --------
 
     public async Task<SymbolMatchResult> CodeFindSymbolAsync(
         string name, string? kind, int maxResults, CancellationToken cancellationToken = default)
@@ -29,7 +29,7 @@ internal sealed partial class RpcTarget
         // Split "Class.Member" into parts; if dotted, use as qualified-name hint.
         var simpleName = name.Contains('.') ? name.Split('.').Last() : name;
 
-        foreach (var project in ws.CurrentSolution.Projects)
+        foreach (var project in EnumerateAllProjects(ws))
         {
             cancellationToken.ThrowIfCancellationRequested();
             var hits = await SymbolFinder.FindDeclarationsAsync(
@@ -83,7 +83,7 @@ internal sealed partial class RpcTarget
         }
 
         var ws = await GetWorkspaceAsync(cancellationToken);
-        var doc = FindDocument(ws.CurrentSolution, resolvedFile!)
+        var doc = FindDocumentAnywhere(ws.CurrentSolution, resolvedFile!)
             ?? throw new VsmcpException(ErrorCodes.NotFound, $"File not in solution: {resolvedFile}");
 
         var root = await doc.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
@@ -131,7 +131,7 @@ internal sealed partial class RpcTarget
         }
 
         var ws = await GetWorkspaceAsync(cancellationToken);
-        var doc = FindDocument(ws.CurrentSolution, resolvedFile!)
+        var doc = FindDocumentAnywhere(ws.CurrentSolution, resolvedFile!)
             ?? throw new VsmcpException(ErrorCodes.NotFound, $"File not in solution: {resolvedFile}");
 
         var root = await doc.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);

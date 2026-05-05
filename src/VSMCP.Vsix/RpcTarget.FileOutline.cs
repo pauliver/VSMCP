@@ -28,7 +28,7 @@ namespace VSMCP.Vsix
                 File = file,
                 ContentHash = hash
             };
-            // Refuse non-C# files outright — outline only works for Roslyn-supported languages.
+            // Refuse non-C# files outright â€” outline only works for Roslyn-supported languages.
             // Previously fell through to a "dump every line" branch that was strictly worse than
             // file_read (#93). C++ callers should use cpp_header_lookup / cpp_include_chain instead.
             var ext = Path.GetExtension(file).ToLowerInvariant();
@@ -38,10 +38,10 @@ namespace VSMCP.Vsix
             }
 
             // Try the live workspace first; fall back to standalone parse for files not in any
-            // loaded project (Open Folder mode, <MiscFiles>, ad-hoc scripts) — fixes #96.
+            // loaded project (Open Folder mode, <MiscFiles>, ad-hoc scripts) â€” fixes #96.
             CompilationUnitSyntax? root = null;
             var ws = await GetWorkspaceAsync(cancellationToken);
-            var doc = FindDocument(ws.CurrentSolution, file);
+            var doc = FindDocumentAnywhere(ws.CurrentSolution, file);
             if (doc is not null)
                 root = await doc.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false) as CompilationUnitSyntax;
             if (root is null)

@@ -167,7 +167,7 @@ internal sealed partial class RpcTarget
             try
             {
                 var ws = await GetWorkspaceAsync(cancellationToken);
-                foreach (var proj in ws.CurrentSolution.Projects)
+                foreach (var proj in EnumerateAllProjects(ws))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     var compilation = await proj.GetCompilationAsync(cancellationToken).ConfigureAwait(false);
