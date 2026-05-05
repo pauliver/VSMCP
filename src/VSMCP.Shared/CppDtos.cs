@@ -2,6 +2,33 @@ using System.Collections.Generic;
 
 namespace VSMCP.Shared;
 
+/// <summary>One declaration found by cpp_outline. Kind is namespace/class/struct/union/enum/typedef/using/function/method.</summary>
+public sealed class CppDecl
+{
+    public string Kind { get; set; } = "";
+    public string Name { get; set; } = "";
+    /// <summary>Containing namespace + class chain joined with '::', or null at file scope.</summary>
+    public string? Container { get; set; }
+    public int Line { get; set; }
+    /// <summary>Signature line (declaration text, trimmed).</summary>
+    public string Signature { get; set; } = "";
+}
+
+public sealed class CppOutlineResult
+{
+    public string File { get; set; } = "";
+    public List<CppDecl> Declarations { get; set; } = new();
+    public int Total { get; set; }
+    public bool Truncated { get; set; }
+}
+
+public sealed class CppMembersResult
+{
+    public string File { get; set; } = "";
+    public string ClassName { get; set; } = "";
+    public List<CppDecl> Members { get; set; } = new();
+}
+
 // C++ Extensions
 
 public sealed class HeaderLookupResult

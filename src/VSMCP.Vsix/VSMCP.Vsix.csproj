@@ -126,6 +126,8 @@
     <Compile Include="RpcTarget.SessionScope.cs" />
     <Compile Include="WorkspaceSidecar.cs" />
     <Compile Include="RpcTarget.WorkspaceSidecar.cs" />
+    <Compile Include="CppOutlineParser.cs" />
+    <Compile Include="RpcTarget.CppOutline.cs" />
   </ItemGroup>
 
   <ItemGroup>

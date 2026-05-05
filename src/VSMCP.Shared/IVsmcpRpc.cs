@@ -35,6 +35,9 @@ public interface IVsmcpRpc
 
     // Open Folder mode sidecar — load loose .csprojs into an in-process workspace so
     // Roslyn-aware tools (file_outline, code_find_symbol, etc.) work even without a .sln.
+    Task<CppOutlineResult> CppOutlineAsync(string file, CancellationToken cancellationToken = default);
+    Task<CppMembersResult> CppClassMembersAsync(string file, string className, CancellationToken cancellationToken = default);
+
     Task<ProjectLoadResult> ProjectLoadAsync(string csprojPath, CancellationToken cancellationToken = default);
     Task<ProjectLoadFolderResult> ProjectLoadWorkspaceFolderAsync(string? rootPath, CancellationToken cancellationToken = default);
     Task<SidecarStatusResult> ProjectSidecarStatusAsync(CancellationToken cancellationToken = default);

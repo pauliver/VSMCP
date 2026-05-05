@@ -88,6 +88,24 @@ internal static class Program
                     Console.Error.WriteLine($"[find-symbol] name={name} matches={r.Matches.Count}");
                     return 0;
                 }
+                case "cpp-outline":
+                {
+                    var file = args.LastOrDefault(a => !a.StartsWith("--") && a != "cpp-outline")
+                        ?? throw new InvalidOperationException("provide file path");
+                    var r = await conn.Proxy.CppOutlineAsync(file, default).ConfigureAwait(false);
+                    Console.WriteLine(JsonSerializer.Serialize(r, new JsonSerializerOptions { WriteIndented = true }));
+                    Console.Error.WriteLine($"[cpp-outline] file={r.File} decls={r.Total} truncated={r.Truncated}");
+                    return 0;
+                }
+                case "cpp-class-members":
+                {
+                    var nonOpts = args.Where(a => !a.StartsWith("--") && a != "cpp-class-members").ToList();
+                    if (nonOpts.Count < 2) throw new InvalidOperationException("usage: cpp-class-members <file> <className>");
+                    var r = await conn.Proxy.CppClassMembersAsync(nonOpts[0], nonOpts[1], default).ConfigureAwait(false);
+                    Console.WriteLine(JsonSerializer.Serialize(r, new JsonSerializerOptions { WriteIndented = true }));
+                    Console.Error.WriteLine($"[cpp-class-members] file={r.File} class={r.ClassName} members={r.Members.Count}");
+                    return 0;
+                }
                 case "file-outline":
                 {
                     var file = args.LastOrDefault(a => !a.StartsWith("--") && a != "file-outline")
