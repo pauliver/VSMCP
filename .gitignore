@@ -55,3 +55,4 @@ ehthumbs.db
 # Local config
 config.local.json
 *.local.json
+.tmp/
