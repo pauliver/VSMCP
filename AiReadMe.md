@@ -84,6 +84,12 @@ Picking the right read tool saves order-of-magnitude tokens. Match granularity t
 | Top-level structure of a C# file        | `file_outline(path)` — types + members, no bodies         |
 | Top-level structure of a C/C++ file     | `cpp_outline(path)` — namespaces, types, functions; tokenizer-based |
 | Members of a named C++ class            | `cpp_class_members(file, className)`                       |
+| All classes/structs in the solution     | `cpp_classes(namePattern?, kinds?)` — solution-wide aggregation |
+| Find a C++ symbol by name               | `cpp_find_symbol(name, kind?)` — returns Container chain   |
+| Type / decl text at a C++ cursor        | `cpp_quick_info(file, line, col)` — libclang-backed        |
+| References to a C++ symbol              | `cpp_find_references(file, line, col)` — libclang, single-TU v1 |
+| Jump to C++ definition                  | `cpp_goto_definition(file, line, col)` — libclang-backed   |
+| Real C++ compile errors / warnings      | `cpp_diagnostics(file)` — libclang diagnostics             |
 | Open Folder mode (no .sln)              | `project.load_workspace_folder()` once, then Roslyn tools work |
 | Just the members of one class           | `file_members(path, className)`                           |
 | One method's body                       | `code_read_member(path, className, memberName)`           |
@@ -185,7 +191,7 @@ For dumps with no managed symbols, ask the user for a symbol path before walking
 - **Stale buffers**: `file_read` reads the live editor buffer if open (may be dirty). The result includes `hasUnsavedChanges` — check it.
 - **Builds that never finish**: `build_wait` has a default timeout; if it returns "running", call `build_status` periodically rather than waiting forever. `build_cancel` if needed.
 - **Side-effecting tools** (`eval_expression` with effects, `memory_write`, `dump.dbgeng`) may be gated by user config (`allowSideEffects`, `allowDbgEng`). Check the error if a call is rejected.
-- **C++ vs C#**: many edit tools are Roslyn-only. For C++, use `cpp_*` (outline / class_members / header_lookup / include_chain / macro_lookup / api_ref / preprocess) and the file-range tools. Semantic-tier features (find references, quick info, diagnostics, semantic rename) are not yet implemented for C++ — those are C#-only.
+- **C++ vs C#**: edit tools (rename / move_type / move_method / replace_member) are Roslyn-only — C# only. For C++ discovery use `cpp_*` syntactic tools (outline / classes / find_symbol / class_members / header_lookup / include_chain / macro_lookup / preprocess). For C++ **semantic** queries (real libclang parse): `cpp_diagnostics`, `cpp_quick_info`, `cpp_find_references`, `cpp_goto_definition`, `cpp_invalidate`. The semantic tier spawns an out-of-process libclang sidecar on first call (cold-start ~1-3s); subsequent calls warm. v1 limitations: single-TU find_references (no cross-TU yet), parses on-disk content only (dirty editor buffers ignored — call `cpp_invalidate` after a save).
 - **Open Folder mode**: VS without a .sln only sees `<MiscFiles>`. Run `project.load_workspace_folder()` at the start of the session — it scans the folder for .csproj files and loads them into an in-process sidecar workspace so symbol lookups, file outlines, and class searches work. Edit tools (`edit_rename`, `edit_move_type`, etc.) still need a real .sln.
 - **Don't disable follow mode silently**. If you turn it off mid-session, the user may stop seeing your work in the IDE. Tell them.
 
