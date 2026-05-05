@@ -17,6 +17,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VSMCP.RearchTool", "VSMCP.R
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VSMCP.CppAnalyzer", "VSMCP.CppAnalyzer\VSMCP.CppAnalyzer.csproj", "{69CEB4A9-F86E-4CB1-8F71-C183A4859AE2}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VSMCP.Vsix.UnitTests", "..\tests\VSMCP.Vsix.UnitTests\VSMCP.Vsix.UnitTests.csproj", "{E7B64C05-4438-4C6A-8244-76A28372DCDA}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -99,6 +101,18 @@ Global
 		{69CEB4A9-F86E-4CB1-8F71-C183A4859AE2}.Release|x64.Build.0 = Release|Any CPU
 		{69CEB4A9-F86E-4CB1-8F71-C183A4859AE2}.Release|x86.ActiveCfg = Release|Any CPU
 		{69CEB4A9-F86E-4CB1-8F71-C183A4859AE2}.Release|x86.Build.0 = Release|Any CPU
+		{E7B64C05-4438-4C6A-8244-76A28372DCDA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E7B64C05-4438-4C6A-8244-76A28372DCDA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E7B64C05-4438-4C6A-8244-76A28372DCDA}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{E7B64C05-4438-4C6A-8244-76A28372DCDA}.Debug|x64.Build.0 = Debug|Any CPU
+		{E7B64C05-4438-4C6A-8244-76A28372DCDA}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{E7B64C05-4438-4C6A-8244-76A28372DCDA}.Debug|x86.Build.0 = Debug|Any CPU
+		{E7B64C05-4438-4C6A-8244-76A28372DCDA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E7B64C05-4438-4C6A-8244-76A28372DCDA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E7B64C05-4438-4C6A-8244-76A28372DCDA}.Release|x64.ActiveCfg = Release|Any CPU
+		{E7B64C05-4438-4C6A-8244-76A28372DCDA}.Release|x64.Build.0 = Release|Any CPU
+		{E7B64C05-4438-4C6A-8244-76A28372DCDA}.Release|x86.ActiveCfg = Release|Any CPU
+		{E7B64C05-4438-4C6A-8244-76A28372DCDA}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

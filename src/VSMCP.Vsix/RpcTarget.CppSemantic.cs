@@ -126,7 +126,7 @@ internal sealed partial class RpcTarget
             if (string.IsNullOrEmpty(pch)) return;
             await CppSetPchHeaderAsync(full, pch, ct).ConfigureAwait(false);
         }
-        catch { /* best-effort */ }
+        catch (Exception ex) { VsmcpLog.Debug("cpp.pch", $"EnsurePchPushedAsync({full})", ex); }
     }
 
     /// <summary>
@@ -225,7 +225,7 @@ internal sealed partial class RpcTarget
             }
             await CppSetUnsavedBufferAsync(file, content, ct).ConfigureAwait(false);
         }
-        catch { /* best-effort */ }
+        catch (Exception ex) { VsmcpLog.Debug("cpp.dirty-buffer", $"SyncDirtyBufferToAnalyzerAsync({file})", ex); }
     }
 
     public async Task<CppLocationListResult> CppFindReferencesSolutionAsync(string file, int line, int column, int maxFiles, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default)

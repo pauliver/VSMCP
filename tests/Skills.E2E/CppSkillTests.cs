@@ -186,6 +186,106 @@ public sealed class CppSkillTests : IDisposable
     }
 
     [SkippableFact]
+    public async Task CppClasses_lists_solution_types()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+
+        var result = await rpc.CppClassesAsync(null, null, 1000);
+        Assert.Contains(result.Classes, c => c.Name == "Sample");
+        Assert.Contains(result.Classes, c => c.Name == "Point" && c.Kind == "struct");
+    }
+
+    [SkippableFact]
+    public async Task CppOutlineMany_batches_multiple_files()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+        var sample = Path.Combine(_fixturesDir, "Sample.hpp");
+        var sampleBase = Path.Combine(_fixturesDir, "SampleBase.hpp");
+
+        var result = await rpc.CppOutlineManyAsync(new[] { sample, sampleBase });
+        Assert.Equal(2, result.Entries.Count);
+        Assert.Contains(result.Entries, e => e.File.EndsWith("Sample.hpp"));
+        Assert.Contains(result.Entries, e => e.File.EndsWith("SampleBase.hpp"));
+    }
+
+    [SkippableFact]
+    public async Task CppSymbolSummary_describes_known_class()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+
+        var result = await rpc.CppSymbolSummaryAsync("Sample");
+        Assert.NotNull(result);
+        Assert.Equal("Sample", result.Symbol);
+    }
+
+    [SkippableFact]
+    public async Task CppAnalyzerStatus_returns_state()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+
+        var result = await rpc.CppAnalyzerStatusAsync(20);
+        // Analyzer may or may not be running — just verify the call doesn't throw.
+        Assert.NotNull(result);
+    }
+
+    [SkippableFact]
+    public async Task CppGenerateEquality_inserts_operator()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+        await rpc.VsSetAutoFocusAsync(false);
+
+        var tempDir = CopyFixturesToTemp();
+        var path = Path.Combine(tempDir, "EqStruct.hpp");
+        File.WriteAllText(path, """
+            #pragma once
+
+            struct EqStruct
+            {
+                int x;
+                int y;
+            };
+            """.Replace("\r\n", "\n"));
+
+        var result = await rpc.CppGenerateEqualityAsync(path, "EqStruct");
+        Assert.True(result.Inserted);
+
+        var after = File.ReadAllText(path);
+        Assert.Contains("operator==", after);
+    }
+
+    [SkippableFact]
+    public async Task CppReplaceMember_swaps_method_body()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+        await rpc.VsSetAutoFocusAsync(false);
+
+        var tempDir = CopyFixturesToTemp();
+        var path = Path.Combine(tempDir, "ReplaceTarget.hpp");
+        File.WriteAllText(path, """
+            #pragma once
+            class ReplaceTarget
+            {
+            public:
+                int Compute() { return 1; }
+            };
+            """.Replace("\r\n", "\n"));
+
+        var newCode = "    int Compute() { return 42; }";
+        var result = await rpc.CppReplaceMemberAsync(path, "ReplaceTarget", "Compute", newCode);
+        Assert.True(result.Replaced);
+
+        var after = File.ReadAllText(path);
+        Assert.Contains("return 42;", after);
+        Assert.DoesNotContain("return 1;", after);
+    }
+
+    [SkippableFact]
     public async Task CppOverrideMember_inserts_override_stub()
     {
         Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);

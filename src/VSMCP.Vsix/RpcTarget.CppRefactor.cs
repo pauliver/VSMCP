@@ -213,7 +213,7 @@ internal sealed partial class RpcTarget
         // the source header gets a parallel #include of the target header.
         List<string> updatedSiblings;
         try { updatedSiblings = await UpdateSiblingIncludesAsync(sourceFile, targetFile, typeName, cancellationToken).ConfigureAwait(false); }
-        catch { updatedSiblings = new List<string>(); }
+        catch (Exception ex) { VsmcpLog.Debug("cpp.move", $"UpdateSiblingIncludesAsync({sourceFile})", ex); updatedSiblings = new List<string>(); }
 
         try
         {
@@ -300,7 +300,7 @@ internal sealed partial class RpcTarget
 
         List<string> updatedSiblings;
         try { updatedSiblings = await UpdateSiblingIncludesAsync(sourceFile, targetFile, className, cancellationToken).ConfigureAwait(false); }
-        catch { updatedSiblings = new List<string>(); }
+        catch (Exception ex) { VsmcpLog.Debug("cpp.move", $"UpdateSiblingIncludesAsync({sourceFile}/{className})", ex); updatedSiblings = new List<string>(); }
 
         try
         {

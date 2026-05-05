@@ -131,6 +131,7 @@
     <Compile Include="RpcTarget.CppSearch.cs" />
     <Compile Include="CppAnalyzerHost.cs" />
     <Compile Include="JobObjectKillOnClose.cs" />
+    <Compile Include="VsmcpLog.cs" />
     <Compile Include="RpcTarget.CppSemantic.cs" />
     <Compile Include="RpcTarget.CppEdit.cs" />
     <Compile Include="RpcTarget.CppMore.cs" />

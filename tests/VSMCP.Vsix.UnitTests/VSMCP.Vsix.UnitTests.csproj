@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- net472 to match VSMCP.Vsix; we directly link source files rather than ProjectReference
+         since the VSIX project pulls in the full VS SDK which we don't need for these tests. -->
+    <TargetFramework>net472</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <RootNamespace>VSMCP.Tests.Vsix</RootNamespace>
+    <AssemblyName>VSMCP.Vsix.UnitTests</AssemblyName>
+    <NoWarn>$(NoWarn);CS8625</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Pull in the parser source directly. CppOutlineParser is self-contained pure .NET -->
+    <Compile Include="..\..\src\VSMCP.Vsix\CppOutlineParser.cs" Link="Sut\CppOutlineParser.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\VSMCP.Shared\VSMCP.Shared.csproj" />
+  </ItemGroup>
+</Project>
