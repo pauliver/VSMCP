@@ -40,6 +40,9 @@ internal sealed partial class RpcTarget
             sb.AppendLine(lines[i]);
         }
 
+        if (Follow.Enabled)
+            await Follow.TouchAsync(file, hit.Line, 1, isEdit: false, cancellationToken).ConfigureAwait(false);
+
         return new CppReadMemberResult
         {
             File = file,

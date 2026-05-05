@@ -406,6 +406,127 @@ public sealed class CppOutlineParserTests
     }
 
     [Fact]
+    public void Parse_finds_function_with_multiline_param_list()
+    {
+        // Regression test for #117: parameter list spanning multiple lines.
+        var path = WriteToTemp("""
+            class Bus {
+            public:
+                static int Subscribe(Handler      fn,
+                                     void*        userdata    = nullptr,
+                                     int          mode        = 0,
+                                     int          dll         = 0) noexcept;
+            };
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            Assert.Contains(outline.Declarations, d => d.Kind == "method" && d.Name == "Subscribe");
+            // The continuation lines should NOT have produced phantom field entries (#120).
+            Assert.DoesNotContain(outline.Declarations, d => d.Kind == "field" && d.Name == "dll");
+            Assert.DoesNotContain(outline.Declarations, d => d.Kind == "field" && d.Name == "userdata");
+            Assert.DoesNotContain(outline.Declarations, d => d.Kind == "field" && d.Name == "mode");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Parse_handles_alignas_decorated_struct()
+    {
+        // Regression test for #118: `struct alignas(N) Camera` was capturing "alignas" as the name.
+        var path = WriteToTemp("""
+            struct alignas(16) Camera {
+                float position[3];
+            };
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            Assert.Contains(outline.Declarations, d => d.Kind == "struct" && d.Name == "Camera");
+            Assert.DoesNotContain(outline.Declarations, d => d.Name == "alignas");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Parse_handles_declspec_decorated_class()
+    {
+        var path = WriteToTemp("""
+            class __declspec(dllexport) Exported {
+                int x;
+            };
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            Assert.Contains(outline.Declarations, d => d.Kind == "class" && d.Name == "Exported");
+            Assert.DoesNotContain(outline.Declarations, d => d.Name == "__declspec");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Parse_handles_attribute_decorated_class()
+    {
+        var path = WriteToTemp("""
+            class [[nodiscard]] Result {
+                int code;
+            };
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            Assert.Contains(outline.Declarations, d => d.Kind == "class" && d.Name == "Result");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Parse_does_not_emit_local_raii_guards_as_functions()
+    {
+        // Regression test for #119: `ScopedLock lk(s.lock);` inside a method body
+        // matched the function regex and was emitted as a function named "lk".
+        var path = WriteToTemp("""
+            class Bus {
+            public:
+                static int Subscribe() noexcept;
+            };
+            int Bus::Subscribe() noexcept {
+                ScopedExclusiveLock lk(s.lock);
+                AnotherGuard g(stuff);
+                return 0;
+            }
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            Assert.DoesNotContain(outline.Declarations, d => d.Kind == "function" && d.Name == "lk");
+            Assert.DoesNotContain(outline.Declarations, d => d.Kind == "function" && d.Name == "g");
+            // The legitimate Subscribe should still be present.
+            Assert.Contains(outline.Declarations, d => d.Name == "Subscribe");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Parse_function_at_namespace_scope_is_emitted()
+    {
+        var path = WriteToTemp("""
+            namespace ns {
+                int FreeFunction(int x);
+                void Another();
+            }
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            Assert.Contains(outline.Declarations, d => d.Kind == "function" && d.Name == "FreeFunction");
+            Assert.Contains(outline.Declarations, d => d.Kind == "function" && d.Name == "Another");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
     public void Parse_emits_fields_inside_class()
     {
         var path = WriteToTemp("""

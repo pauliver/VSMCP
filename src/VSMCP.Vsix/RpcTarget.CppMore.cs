@@ -27,6 +27,14 @@ internal sealed partial class RpcTarget
             catch (Exception ex) { entry.Error = ex.Message; }
             result.Entries.Add(entry);
         }
+        // Follow Mode: open the first successfully-parsed file so the operator sees
+        // visual progress on a batch outline.
+        if (Follow.Enabled)
+        {
+            var firstOk = result.Entries.FirstOrDefault(e => e.Outline is not null);
+            if (firstOk is not null)
+                await Follow.TouchAsync(firstOk.File, 1, 1, isEdit: false, cancellationToken).ConfigureAwait(false);
+        }
         return result;
     }
 
@@ -47,6 +55,8 @@ internal sealed partial class RpcTarget
 
         var visited = new HashSet<string>(StringComparer.Ordinal);
         var tree = await BuildInheritanceTreeAsync(file, className, maxDepth, visited, cancellationToken).ConfigureAwait(false);
+        if (Follow.Enabled)
+            await Follow.TouchAsync(file, tree?.Line ?? 1, 1, isEdit: false, cancellationToken).ConfigureAwait(false);
         return new CppInheritanceResult { ClassName = className, Tree = tree };
     }
 

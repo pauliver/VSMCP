@@ -187,10 +187,23 @@ internal sealed partial class RpcTarget
             throw new VsmcpException(ErrorCodes.InteropFault, "DTE service unavailable.");
 
         var window = dte.ItemOperations.OpenFile(path, EnvDTE.Constants.vsViewKindPrimary);
-        if (line is not null && window?.Document?.Selection is EnvDTE.TextSelection sel)
+        // Activate the window so Edit.GoTo + MoveToLineAndOffset target this document. Without
+        // Activate, MoveToLineAndOffset can succeed silently without scrolling the view when
+        // the doc just loaded.
+        try { window?.Activate(); } catch { }
+
+        if (line is null) return;
+        var targetLine = Math.Max(1, line.Value);
+        var targetCol = Math.Max(1, column ?? 1);
+
+        // Belt-and-suspenders: MoveToLineAndOffset for the caret + Edit.GoTo for view scroll.
+        // The combination reliably scrolls in both .sln-bound and Open Folder workspaces, where
+        // the EnvDTE selection-move alone sometimes leaves the view at the top.
+        if (window?.Document?.Selection is EnvDTE.TextSelection sel)
         {
-            sel.MoveToLineAndOffset(Math.Max(1, line.Value), Math.Max(1, column ?? 1));
+            try { sel.MoveToLineAndOffset(targetLine, targetCol); } catch { }
         }
+        try { dte.ExecuteCommand("Edit.GoTo", targetLine.ToString()); } catch { }
     }
 
     public async Task EditorSaveAsync(string path, CancellationToken cancellationToken = default)

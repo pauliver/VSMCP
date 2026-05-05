@@ -22,8 +22,21 @@ internal static class CppOutlineParser
     // No terminator required — class headers can span multiple lines (`class Foo : public Bar`
     // followed by `{` on the next line). The pending-class state machine in Parse() decides
     // when to push class scope based on the actual `{` location.
+    //
+    // After the keyword, allow any number of `alignas(N)` / `__declspec(...)` / `[[attr]]`
+    // specifiers AND one optional foo_API export macro (e.g. UE-style GAME_API). The
+    // `(?<name>...)` group must be the first identifier that is not one of those.
     private static readonly Regex RxClassStructUnion = new(
-        @"^\s*(?:template\s*<[^>]+>\s*)?(?:export\s+)?(?<kind>class|struct|union)\s+(?:[A-Z_]+_API\s+)?(?<name>[A-Za-z_]\w*)\b(?![A-Za-z_0-9])",
+        @"^\s*(?:template\s*<[^>]+>\s*)?(?:export\s+)?(?<kind>class|struct|union)\s+" +
+        // alignas(...) and __declspec(...) can nest one level (e.g. alignof(K) inside).
+        // The inner (?:[^()]|\([^()]*\))* matches balanced parens up to one level deep,
+        // sufficient for `alignas(alignof(K) > alignof(V) ? alignof(K) : alignof(V))`.
+        @"(?:" +
+            @"(?:alignas|__declspec)\s*\((?:[^()]|\([^()]*\))*\)\s+" +
+            @"|\[\[[^\]]+\]\]\s+" +
+        @")*" +
+        @"(?:[A-Z_]+_API\s+)?" +
+        @"(?<name>[A-Za-z_]\w*)\b(?![A-Za-z_0-9])",
         RegexOptions.Compiled);
 
     private static readonly Regex RxEnum = new(
@@ -67,6 +80,12 @@ internal static class CppOutlineParser
             throw new VsmcpException(ErrorCodes.NotFound, $"File not found: {filePath}");
 
         var lines = File.ReadAllLines(filePath);
+        // Pre-pass: join continuation lines for declarations whose parameter list wraps
+        // across multiple physical lines (#117). Each merged subsequent line is emptied so
+        // line indices stay stable — Line: numbers in the result still reference the first
+        // physical line of the declaration. Continuation lines that previously got
+        // misclassified as fields (#120) disappear naturally.
+        JoinContinuationLines(lines);
         var nsStack = new Stack<(string name, int braceDepthAtEnter)>();
         var classStack = new Stack<(string kind, string name, int braceDepthAtEnter)>();
         int braceDepth = 0;
@@ -206,6 +225,55 @@ internal static class CppOutlineParser
 
         result.Total = result.Declarations.Count;
         return result;
+    }
+
+    /// <summary>
+    /// In-place merge of continuation lines whose parent declaration left an open `(`.
+    /// When a line's paren count is positive (more `(` than `)`), this method appends
+    /// subsequent lines (separated by spaces) into that line and empties the merged
+    /// lines. Stops when paren depth balances or we run out of lines. Skips parens that
+    /// appear inside string/char literals or after a `//` line comment.
+    /// </summary>
+    internal static void JoinContinuationLines(string[] lines)
+    {
+        int i = 0;
+        while (i < lines.Length)
+        {
+            int depth = ParenDepth(lines[i]);
+            if (depth <= 0) { i++; continue; }
+            // Open paren without close on this line — fold subsequent lines into it.
+            var sb = new System.Text.StringBuilder(lines[i]);
+            int j = i + 1;
+            while (j < lines.Length && depth > 0)
+            {
+                sb.Append(' ').Append(lines[j]);
+                depth += ParenDepth(lines[j]);
+                lines[j] = string.Empty;
+                j++;
+            }
+            lines[i] = sb.ToString();
+            i = j;
+        }
+    }
+
+    /// <summary>Net unbalanced parens in a single line, ignoring string/char literals and // comments.</summary>
+    private static int ParenDepth(string line)
+    {
+        int n = 0;
+        bool inString = false;
+        bool inChar = false;
+        for (int k = 0; k < line.Length; k++)
+        {
+            char c = line[k];
+            if (!inString && !inChar && c == '/' && k + 1 < line.Length && line[k + 1] == '/') break;
+            if (c == '\\' && k + 1 < line.Length) { k++; continue; } // skip escape sequence
+            if (!inChar && c == '"') { inString = !inString; continue; }
+            if (!inString && c == '\'') { inChar = !inChar; continue; }
+            if (inString || inChar) continue;
+            if (c == '(') n++;
+            else if (c == ')') n--;
+        }
+        return n;
     }
 
     private static string StripComments(string line, ref bool inBlock)
@@ -374,7 +442,18 @@ internal static class CppOutlineParser
 
     private static bool TryMatchFunction(string line, int lineNumber, string? container, int braceDepth, Stack<(string kind, string name, int braceDepthAtEnter)> cls, Stack<(string name, int braceDepthAtEnter)> ns, CppOutlineResult result)
     {
-        // Inside a class/struct (depth > namespace count) the function is a member; outside, it's free.
+        // Reject matches inside function bodies (#119). Function declarations only legally
+        // appear at:
+        //   - directly inside a class body: braceDepth == innermostClass.braceDepthAtEnter + 1
+        //   - file scope or directly inside a namespace: braceDepth == nsStack.Count (each
+        //     namespace adds one brace; classStack must be empty)
+        // Without this gate, RAII guards like `ScopedLock lk(s.lock);` get emitted as
+        // bogus functions named "lk".
+        bool atDeclarableScope = cls.Count > 0
+            ? braceDepth == cls.Peek().braceDepthAtEnter + 1
+            : braceDepth == ns.Count;
+        if (!atDeclarableScope) return false;
+
         var m = RxFunction.Match(line);
         if (!m.Success) return false;
 
@@ -413,6 +492,11 @@ internal static class CppOutlineParser
         if (trimmed.StartsWith("using ", StringComparison.Ordinal)) return false;
         // Don't try to match `friend` declarations.
         if (trimmed.StartsWith("friend ", StringComparison.Ordinal)) return false;
+        // Defense (#120): reject lines whose paren count is unbalanced — typically a
+        // continuation of a multi-line function decl that JoinContinuationLines missed.
+        // Real fields don't contain unmatched `)` (function-pointer fields like
+        // `void (*FnPtr)(int);` are balanced).
+        if (ParenDepth(line) != 0) return false;
 
         var m = RxField.Match(line);
         if (!m.Success) return false;

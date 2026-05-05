@@ -57,7 +57,10 @@ internal sealed partial class RpcTarget
         await EnsurePchPushedAsync(file, cancellationToken).ConfigureAwait(false);
         var includes = await ResolveCppIncludesAsync(file, extraIncludes, cancellationToken).ConfigureAwait(false);
         var proxy = await CppAnalyzerHost.GetProxyAsync(cancellationToken).ConfigureAwait(false);
-        return await proxy.DiagnosticsAsync(file, includes, extraDefines, cancellationToken).ConfigureAwait(false);
+        var result = await proxy.DiagnosticsAsync(file, includes, extraDefines, cancellationToken).ConfigureAwait(false);
+        if (Follow.Enabled)
+            await Follow.TouchAsync(file, 1, 1, isEdit: false, cancellationToken).ConfigureAwait(false);
+        return result;
     }
 
     public async Task<CppLocationListResult> CppFindReferencesSemAsync(string file, int line, int column, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default)
@@ -66,7 +69,10 @@ internal sealed partial class RpcTarget
         await EnsurePchPushedAsync(file, cancellationToken).ConfigureAwait(false);
         var includes = await ResolveCppIncludesAsync(file, extraIncludes, cancellationToken).ConfigureAwait(false);
         var proxy = await CppAnalyzerHost.GetProxyAsync(cancellationToken).ConfigureAwait(false);
-        return await proxy.FindReferencesAsync(file, line, column, includes, extraDefines, cancellationToken).ConfigureAwait(false);
+        var result = await proxy.FindReferencesAsync(file, line, column, includes, extraDefines, cancellationToken).ConfigureAwait(false);
+        if (Follow.Enabled)
+            await Follow.TouchAsync(file, line, column, isEdit: false, cancellationToken).ConfigureAwait(false);
+        return result;
     }
 
     public async Task<CppQuickInfoResult> CppQuickInfoAsync(string file, int line, int column, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default)
@@ -75,7 +81,10 @@ internal sealed partial class RpcTarget
         await EnsurePchPushedAsync(file, cancellationToken).ConfigureAwait(false);
         var includes = await ResolveCppIncludesAsync(file, extraIncludes, cancellationToken).ConfigureAwait(false);
         var proxy = await CppAnalyzerHost.GetProxyAsync(cancellationToken).ConfigureAwait(false);
-        return await proxy.QuickInfoAsync(file, line, column, includes, extraDefines, cancellationToken).ConfigureAwait(false);
+        var result = await proxy.QuickInfoAsync(file, line, column, includes, extraDefines, cancellationToken).ConfigureAwait(false);
+        if (Follow.Enabled)
+            await Follow.TouchAsync(file, line, column, isEdit: false, cancellationToken).ConfigureAwait(false);
+        return result;
     }
 
     public async Task<CppLocationResult> CppGotoDefinitionAsync(string file, int line, int column, string[]? extraIncludes, string[]? extraDefines, CancellationToken cancellationToken = default)
@@ -84,7 +93,17 @@ internal sealed partial class RpcTarget
         await EnsurePchPushedAsync(file, cancellationToken).ConfigureAwait(false);
         var includes = await ResolveCppIncludesAsync(file, extraIncludes, cancellationToken).ConfigureAwait(false);
         var proxy = await CppAnalyzerHost.GetProxyAsync(cancellationToken).ConfigureAwait(false);
-        return await proxy.GotoDefinitionAsync(file, line, column, includes, extraDefines, cancellationToken).ConfigureAwait(false);
+        var result = await proxy.GotoDefinitionAsync(file, line, column, includes, extraDefines, cancellationToken).ConfigureAwait(false);
+        // Follow the definition target if we got one; else fall back to the cursor location.
+        if (Follow.Enabled)
+        {
+            var loc = result.Location;
+            var f = !string.IsNullOrEmpty(loc?.File) ? loc!.File : file;
+            var ln = loc?.Line ?? line;
+            var col = loc?.Column ?? column;
+            await Follow.TouchAsync(f, ln, col, isEdit: false, cancellationToken).ConfigureAwait(false);
+        }
+        return result;
     }
 
     public async Task CppInvalidateAsync(string file, CancellationToken cancellationToken = default)
@@ -245,7 +264,10 @@ internal sealed partial class RpcTarget
         await EnsurePchPushedAsync(file, cancellationToken).ConfigureAwait(false);
         var includes = await ResolveCppIncludesAsync(file, extraIncludes, cancellationToken).ConfigureAwait(false);
         var proxy = await CppAnalyzerHost.GetProxyAsync(cancellationToken).ConfigureAwait(false);
-        return await proxy.FindReferencesInFilesAsync(file, line, column, others, includes, extraDefines, cancellationToken).ConfigureAwait(false);
+        var result = await proxy.FindReferencesInFilesAsync(file, line, column, others, includes, extraDefines, cancellationToken).ConfigureAwait(false);
+        if (Follow.Enabled)
+            await Follow.TouchAsync(file, line, column, isEdit: false, cancellationToken).ConfigureAwait(false);
+        return result;
     }
 
     public async Task<CppLocationListResult> CppRenameAsync(string file, int line, int column, string newName, CancellationToken cancellationToken = default)
