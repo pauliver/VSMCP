@@ -12,41 +12,29 @@ VSMCP is a Visual Studio 2022 MCP (Model Context Protocol) server. It consists o
 
 **This project requires Windows + Visual Studio 2022.** The VSIX cannot be built or tested on macOS. Mac sessions should be used for planning, issue filing, and code authoring only — a Windows agent (or developer) must build and validate.
 
-## Current status (as of 2026-05-02)
+## Current status
 
-| Milestone | Status |
-|---|---|
-| M1–M11 | Complete — build, debug, files, breakpoints, inspection, modules, dump, diagnostics, code intelligence |
-| M12 | VSIX done; **#51 compile bug must be fixed first**; MCP tools not yet wired (#54) |
-| M13–M17 | DTOs + interface declared; no implementations yet (#55–#59) |
-| M18 (Semantic Layer) | Planned — see `.claude/plans/M18-semantic-layer.md`; issues #62–#69 filed |
-| CLI | Planned — issue #70; single `vsmcp` dotnet tool with auto-discovery |
-
-## Where to start on a fresh Windows session
-
-1. Fix **#51** (compile error: `ContainerName` → `Container` in `RpcTarget.FilesExtensions.cs:305`) — this blocks all builds.
-2. Fix **#52** and **#53** (M12 logic bugs).
-3. Wire M12 MCP tools (#54) — VSIX implementations exist, just need `VsmcpTools` methods.
-4. Then proceed through M13 → M14 → M15 → M18 in priority order.
+M1–M20 substantially shipped. File layout was refactored from milestone-named files (`M*Dtos.cs`, `RpcTarget.FilesExtensions.cs`) to topical names on 2026-05-05 — see git log around `72f7dd6`. Open work is whatever's in GitHub issues; check there for the live list.
 
 ## Key files
 
 | File | Purpose |
 |---|---|
-| `src/VSMCP.Shared/IVsmcpRpc.cs` | Full RPC contract — M1–M18 methods declared here |
-| `src/VSMCP.Vsix/RpcTarget.FilesExtensions.cs` | M12 VSIX implementations (working, with bugs #51–#53) |
-| `src/VSMCP.Vsix/RpcTarget.Stubs.cs` | M13–M17 + C++ stubs (all "to be implemented") |
-| `src/VSMCP.Server/VsmcpTools.cs` | MCP tool surface — add `[McpServerTool]` methods here |
-| `src/VSMCP.Server/VsmcpTools.Batch.cs` | Batch tool variants |
-| `src/VSMCP.Shared/M12Dtos.cs` – `M17Dtos.cs` | DTOs per milestone |
+| `src/VSMCP.Shared/IVsmcpRpc.cs` | Full RPC contract — every method the Server can call on the VSIX |
+| `src/VSMCP.Shared/*Dtos.cs` | DTOs grouped by topic: `FileDiscovery`, `Search`, `Edit`, `Cpp`, `Semantic`, `ActiveEditor`, `Build`, `Debug`, `Inspection`, etc. |
+| `src/VSMCP.Vsix/RpcTarget.cs` | Main partial-class declaration; topical partials live in `RpcTarget.<Topic>.cs` |
+| `src/VSMCP.Vsix/RpcTarget.FileDiscovery.cs` | File listing/glob/classes/members/dependencies (Roslyn + DTE) |
+| `src/VSMCP.Vsix/RpcTarget.Code.cs` | Roslyn code intelligence (goto def, find refs, diagnostics, quickinfo) |
+| `src/VSMCP.Vsix/RpcTarget.FileMove.cs` | Bulk file rename + .csproj `<Compile Include>` sync |
+| `src/VSMCP.Server/VsmcpTools.cs` | MCP tool surface — add `[McpServerTool]` methods here (split into `VsmcpTools.<Topic>.cs` partials) |
+| `src/VSMCP.RearchTool/Program.cs` | Direct-pipe IVsmcpRpc client for ops that bypass the MCP layer (rearch, bulk maintenance) |
 | `src/VSMCP.Shared/ErrorCodes.cs` | Error code constants |
-| `src/VSMCP.Shared/ProtocolVersion.cs` | Bump Minor as milestones ship |
-| `docs/M12-M16_Expansion_Plan.md` | Design spec for M12–M17 |
-| `.claude/plans/M18-semantic-layer.md` | Design spec for M18 semantic layer |
+| `src/VSMCP.Shared/ProtocolVersion.cs` | Bump Minor as new RPC methods ship |
+| `.claude/plans/` | Design specs for major arcs |
 
 ## Roslyn utilities (reuse these, don't duplicate)
 
-All in `RpcTarget.FilesExtensions.cs` and `RpcTarget.Code.cs`:
+Mostly in `RpcTarget.FileDiscovery.cs` and `RpcTarget.Code.cs`:
 
 - `FileMembersAsync(file, className, ...)` — returns `MemberInfo` with `CodeSpan` per member ← **key asset**
 - `GetCodeSpan(ISymbol)` — converts Roslyn symbol → 1-based file/line/col span
