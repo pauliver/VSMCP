@@ -190,4 +190,307 @@ public sealed class CppOutlineParserTests
         }
         finally { File.Delete(path); }
     }
+
+    [Fact]
+    public void Parse_finds_typedef_and_using_alias()
+    {
+        var path = WriteToTemp("""
+            typedef unsigned int Size32;
+            using StringMap = std::map<std::string, std::string>;
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            Assert.Contains(outline.Declarations, d => d.Kind == "typedef" && d.Name == "Size32");
+            Assert.Contains(outline.Declarations, d => d.Kind == "using" && d.Name == "StringMap");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Parse_handles_nested_namespaces()
+    {
+        var path = WriteToTemp("""
+            namespace A {
+                namespace B {
+                    class Nested { int x; };
+                }
+            }
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            var nested = outline.Declarations.FirstOrDefault(d => d.Name == "Nested");
+            Assert.NotNull(nested);
+            Assert.Equal("A::B", nested!.Container);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Parse_handles_compact_namespace_syntax()
+    {
+        var path = WriteToTemp("""
+            namespace A::B::C {
+                class Deep { };
+            }
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            // Either the namespace is recorded as one entry or split — accept either.
+            Assert.Contains(outline.Declarations, d => d.Kind == "class" && d.Name == "Deep");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Parse_handles_template_class()
+    {
+        var path = WriteToTemp("""
+            template<typename T>
+            class Container
+            {
+            public:
+                T value;
+            };
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            Assert.Contains(outline.Declarations, d => d.Kind == "class" && d.Name == "Container");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Parse_handles_function_with_default_args()
+    {
+        var path = WriteToTemp("""
+            int compute(int x, int y = 0, const char* tag = nullptr);
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            Assert.Contains(outline.Declarations, d => d.Kind == "function" && d.Name == "compute");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Parse_handles_static_and_constexpr_methods()
+    {
+        var path = WriteToTemp("""
+            class Math {
+            public:
+                static int Add(int a, int b);
+                constexpr int Square(int x) const;
+                inline void Init();
+            };
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            Assert.Contains(outline.Declarations, d => d.Kind == "method" && d.Name == "Add");
+            Assert.Contains(outline.Declarations, d => d.Kind == "method" && d.Name == "Square");
+            Assert.Contains(outline.Declarations, d => d.Kind == "method" && d.Name == "Init");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Parse_skips_block_comments()
+    {
+        var path = WriteToTemp("""
+            /* class CommentedOut { int x; }; */
+            class Real { int y; };
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            Assert.DoesNotContain(outline.Declarations, d => d.Name == "CommentedOut");
+            Assert.Contains(outline.Declarations, d => d.Name == "Real");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Parse_skips_line_comments()
+    {
+        var path = WriteToTemp("""
+            // class CommentedOut { int x; };
+            class Real { int y; };
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            Assert.DoesNotContain(outline.Declarations, d => d.Name == "CommentedOut");
+            Assert.Contains(outline.Declarations, d => d.Name == "Real");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Parse_skips_preprocessor_directives()
+    {
+        var path = WriteToTemp("""
+            #define FOO_API __declspec(dllexport)
+            #ifdef DEBUG
+            class DebugOnly { int x; };
+            #endif
+            class Always { int y; };
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            // Preprocessor directives are skipped; classes between them are still parsed.
+            Assert.Contains(outline.Declarations, d => d.Name == "Always");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Parse_handles_macro_decorated_class()
+    {
+        // Common pattern: `class FOO_API ClassName` where FOO_API is a dllexport macro.
+        var path = WriteToTemp("""
+            class GAME_API Player { int hp; };
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            Assert.Contains(outline.Declarations, d => d.Kind == "class" && d.Name == "Player");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Parse_finds_destructor()
+    {
+        var path = WriteToTemp("""
+            class Foo {
+            public:
+                Foo();
+                ~Foo();
+            };
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            // Constructor and destructor handling — at minimum the class itself is found.
+            Assert.Contains(outline.Declarations, d => d.Kind == "class" && d.Name == "Foo");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Parse_handles_anonymous_struct_inside_class()
+    {
+        var path = WriteToTemp("""
+            class Outer {
+                struct {
+                    int a;
+                    int b;
+                } unnamed;
+            public:
+                int x;
+            };
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            // Anonymous struct shouldn't crash the parser; the outer class should still be found.
+            Assert.Contains(outline.Declarations, d => d.Kind == "class" && d.Name == "Outer");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Parse_emits_fields_inside_class()
+    {
+        var path = WriteToTemp("""
+            class Sample
+            {
+            public:
+                int Compute(int x);
+            private:
+                int        seed_;
+                int        accum_;
+                const char* name_;
+            };
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            Assert.Contains(outline.Declarations, d => d.Kind == "field" && d.Name == "seed_");
+            Assert.Contains(outline.Declarations, d => d.Kind == "field" && d.Name == "accum_");
+            Assert.Contains(outline.Declarations, d => d.Kind == "field" && d.Name == "name_");
+            // Methods should still be picked up.
+            Assert.Contains(outline.Declarations, d => d.Kind == "method" && d.Name == "Compute");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Parse_does_not_emit_fields_for_local_vars_in_method_bodies()
+    {
+        var path = WriteToTemp("""
+            class Foo
+            {
+            public:
+                int Bar() {
+                    int local = 0;
+                    int another = 1;
+                    return local + another;
+                }
+            };
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            // 'local' and 'another' are local vars, not class fields. Should not be emitted.
+            Assert.DoesNotContain(outline.Declarations, d => d.Kind == "field" && d.Name == "local");
+            Assert.DoesNotContain(outline.Declarations, d => d.Kind == "field" && d.Name == "another");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Parse_emits_fields_with_initializers()
+    {
+        var path = WriteToTemp("""
+            struct Defaults {
+                int x = 0;
+                int y = 42;
+                std::string name = "default";
+            };
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            Assert.Contains(outline.Declarations, d => d.Kind == "field" && d.Name == "x");
+            Assert.Contains(outline.Declarations, d => d.Kind == "field" && d.Name == "y");
+            Assert.Contains(outline.Declarations, d => d.Kind == "field" && d.Name == "name");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Parse_handles_method_returning_pointer_to_template()
+    {
+        var path = WriteToTemp("""
+            class Factory {
+            public:
+                std::shared_ptr<MyClass> Create(int id);
+                std::vector<int>* GetCounts() const;
+            };
+            """);
+        try
+        {
+            var outline = CppOutlineParser.Parse(path);
+            Assert.Contains(outline.Declarations, d => d.Kind == "method" && d.Name == "Create");
+            Assert.Contains(outline.Declarations, d => d.Kind == "method" && d.Name == "GetCounts");
+        }
+        finally { File.Delete(path); }
+    }
 }

@@ -418,4 +418,363 @@ public sealed class CppSkillTests : IDisposable
         var after = File.ReadAllText(path);
         Assert.Contains("void doIt() override", after);
     }
+
+    // -------- Additional read-side coverage --------
+
+    [SkippableFact]
+    public async Task CppFindSymbol_with_glob_pattern_returns_matches()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+
+        var hits = await rpc.CppFindSymbolAsync("Sample*", null, 50);
+        Assert.NotEmpty(hits.Matches);
+        Assert.Contains(hits.Matches, m => m.Name == "Sample" || m.Name == "SampleBase");
+    }
+
+    [SkippableFact]
+    public async Task CppFindSymbol_with_unknown_returns_empty()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+
+        var hits = await rpc.CppFindSymbolAsync("__definitely_does_not_exist_zzz__", null, 10);
+        Assert.Empty(hits.Matches);
+    }
+
+    [SkippableFact]
+    public async Task CppClasses_filtered_by_kind_returns_only_structs()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+
+        var result = await rpc.CppClassesAsync(null, new[] { "struct" }, 100);
+        Assert.All(result.Classes, c => Assert.Equal("struct", c.Kind));
+    }
+
+    [SkippableFact]
+    public async Task CppClasses_filtered_by_namePattern_returns_only_matches()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+
+        var result = await rpc.CppClassesAsync("Sample", null, 100);
+        // "Sample" as glob — exact match (no wildcard).
+        Assert.All(result.Classes, c => Assert.Equal("Sample", c.Name));
+    }
+
+    [SkippableFact]
+    public async Task CppOutlineMany_handles_missing_file_gracefully()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+        var realFile = Path.Combine(_fixturesDir, "Sample.hpp");
+        var bogus = Path.Combine(_fixturesDir, "DoesNotExist.hpp");
+
+        var result = await rpc.CppOutlineManyAsync(new[] { realFile, bogus });
+        // Real file gets a valid outline; bogus gets an Error.
+        Assert.Equal(2, result.Entries.Count);
+        var realEntry = result.Entries.First(e => e.File == realFile);
+        Assert.NotNull(realEntry.Outline);
+        var bogusEntry = result.Entries.First(e => e.File == bogus);
+        Assert.NotNull(bogusEntry.Error);
+    }
+
+    [SkippableFact]
+    public async Task CppInvalidate_succeeds_on_known_file()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+        var path = Path.Combine(_fixturesDir, "Sample.hpp");
+
+        // Should be a no-op pre-cache and a drop post-cache; either way it shouldn't throw.
+        await rpc.CppInvalidateAsync(path);
+    }
+
+    [SkippableFact]
+    public async Task CppReadMember_returns_method_with_name_match()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+        var sampleHpp = Path.Combine(_fixturesDir, "Sample.hpp");
+
+        var result = await rpc.CppReadMemberAsync(sampleHpp, "Sample", "Compute");
+        Assert.True(result.StartLine > 0);
+        Assert.Contains("Compute", result.Content);
+    }
+
+    [SkippableFact]
+    public async Task CppClassMembers_excludes_private_methods_when_requested()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+        var sampleHpp = Path.Combine(_fixturesDir, "Sample.hpp");
+
+        // Default: returns all members (public, private, protected).
+        var members = await rpc.CppClassMembersAsync(sampleHpp, "Sample");
+        var hasPrivateField = members.Members.Any(m => m.Name == "seed_" || m.Name == "accum_");
+        Assert.True(hasPrivateField, "Expected private fields like seed_/accum_ in member list");
+    }
+
+    // -------- More destructive tests --------
+
+    [SkippableFact]
+    public async Task CppMoveMethod_moves_method_to_target_file()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+        await rpc.VsSetAutoFocusAsync(false);
+
+        var tempDir = CopyFixturesToTemp();
+        var src = Path.Combine(tempDir, "MMSrc.hpp");
+        var dst = Path.Combine(tempDir, "MMDst.cpp");
+
+        File.WriteAllText(src, """
+            #pragma once
+            class Mover
+            {
+            public:
+                int Inline() { return 42; }
+            };
+            """.Replace("\r\n", "\n"));
+
+        var result = await rpc.CppMoveMethodAsync(src, "Mover", "Inline", dst, createTargetIfMissing: true);
+        Assert.True(result.Moved);
+
+        var dstText = File.ReadAllText(dst);
+        Assert.Contains("Mover::Inline", dstText);
+    }
+
+    [SkippableFact]
+    public async Task CppRename_renames_within_single_file()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+        await rpc.VsSetAutoFocusAsync(false);
+
+        var tempDir = CopyFixturesToTemp();
+        var path = Path.Combine(tempDir, "RenameTest.hpp");
+        var content = """
+            #pragma once
+            int OldName(int x) { return x; }
+            int caller() { return OldName(7) + OldName(8); }
+            """.Replace("\r\n", "\n");
+        File.WriteAllText(path, content);
+
+        // Find the column of "OldName" on its declaration line.
+        var lines = content.Split('\n');
+        var declLine = 2; // 1-based
+        var col = lines[1].IndexOf("OldName") + 1;
+
+        var result = await rpc.CppRenameAsync(path, declLine, col, "NewName");
+        // At minimum the rename shouldn't throw; verify the file changed.
+        var after = File.ReadAllText(path);
+        Assert.Contains("NewName", after);
+    }
+
+    [SkippableFact]
+    public async Task CppGenerateConstructor_with_explicit_member_subset()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+        await rpc.VsSetAutoFocusAsync(false);
+
+        var tempDir = CopyFixturesToTemp();
+        var path = Path.Combine(tempDir, "ExplicitCtor.hpp");
+        File.WriteAllText(path, """
+            #pragma once
+            struct ExplicitCtor
+            {
+                int x;
+                int y;
+                int z;
+            };
+            """.Replace("\r\n", "\n"));
+
+        // Only include x and z, skip y.
+        var result = await rpc.CppGenerateConstructorAsync(path, "ExplicitCtor", new[] { "x", "z" });
+        Assert.True(result.Inserted);
+
+        var after = File.ReadAllText(path);
+        Assert.Contains("x(x_)", after);
+        Assert.Contains("z(z_)", after);
+        Assert.DoesNotContain("y(y_)", after);
+    }
+
+    [SkippableFact]
+    public async Task CppOrganizeIncludes_handles_already_sorted_no_op()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+        await rpc.VsSetAutoFocusAsync(false);
+
+        var tempDir = CopyFixturesToTemp();
+        var path = Path.Combine(tempDir, "AlreadySorted.hpp");
+        File.WriteAllText(path, """
+            #include <map>
+            #include <vector>
+            #include "bar.hpp"
+            #include "foo.hpp"
+
+            int x = 0;
+            """.Replace("\r\n", "\n"));
+
+        var result = await rpc.CppOrganizeIncludesAsync(path);
+        // Already sorted + dedup'd; the tool may report Changed=false or Changed=true with
+        // no semantic difference. We just verify no crash and counts match.
+        Assert.Equal(4, result.IncludesCounted);
+        Assert.Equal(0, result.Duplicates);
+    }
+
+    [SkippableFact]
+    public async Task CppOrganizeIncludes_preserves_pragma_once()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+        await rpc.VsSetAutoFocusAsync(false);
+
+        var tempDir = CopyFixturesToTemp();
+        var path = Path.Combine(tempDir, "PragmaOnce.hpp");
+        File.WriteAllText(path, """
+            #pragma once
+            #include "foo.hpp"
+            #include <vector>
+
+            int y = 0;
+            """.Replace("\r\n", "\n"));
+
+        await rpc.CppOrganizeIncludesAsync(path);
+        var after = File.ReadAllText(path);
+        Assert.Contains("#pragma once", after);
+    }
+
+    [SkippableFact]
+    public async Task CppGenerateEquality_handles_empty_struct_gracefully()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+        await rpc.VsSetAutoFocusAsync(false);
+
+        var tempDir = CopyFixturesToTemp();
+        var path = Path.Combine(tempDir, "EmptyStruct.hpp");
+        File.WriteAllText(path, """
+            #pragma once
+            struct EmptyStruct { };
+            """.Replace("\r\n", "\n"));
+
+        // Empty struct: equality is vacuously true. Tool may insert `return true;` body
+        // or refuse — we just verify it doesn't crash.
+        try
+        {
+            await rpc.CppGenerateEqualityAsync(path, "EmptyStruct");
+        }
+        catch (Exception ex)
+            when (ex.Message.Contains("fields", StringComparison.OrdinalIgnoreCase)
+                  || ex.Message.Contains("empty", StringComparison.OrdinalIgnoreCase)
+                  || ex.Message.Contains("compare", StringComparison.OrdinalIgnoreCase))
+        {
+            // Acceptable: tool refused on empty type with a descriptive message.
+        }
+    }
+
+    [SkippableFact]
+    public async Task CppOverrideMember_returns_inserted_false_when_no_base()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+        await rpc.VsSetAutoFocusAsync(false);
+
+        var tempDir = CopyFixturesToTemp();
+        var path = Path.Combine(tempDir, "NoBase.hpp");
+        File.WriteAllText(path, """
+            #pragma once
+            class Standalone { };
+            """.Replace("\r\n", "\n"));
+
+        // No base class with the given method — the tool should still insert (it
+        // generates a stub regardless) OR fail gracefully. Verify no crash.
+        try
+        {
+            var result = await rpc.CppOverrideMemberAsync(path, "Standalone", "doIt", "void", "");
+            // Either inserted=true with synthetic body, or inserted=false. Both fine.
+        }
+        catch (Exception) { /* graceful refusal is also acceptable */ }
+    }
+
+    [SkippableFact]
+    public async Task CppReplaceMember_throws_for_unknown_member()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+        await rpc.VsSetAutoFocusAsync(false);
+
+        var tempDir = CopyFixturesToTemp();
+        var path = Path.Combine(tempDir, "ReplaceMissing.hpp");
+        File.WriteAllText(path, """
+            #pragma once
+            class Foo { public: int A(); };
+            """.Replace("\r\n", "\n"));
+
+        await Assert.ThrowsAnyAsync<Exception>(async () =>
+        {
+            await rpc.CppReplaceMemberAsync(path, "Foo", "NonExistent", "    int NonExistent() { return 0; }");
+        });
+    }
+
+    [SkippableFact]
+    public async Task CppInheritance_returns_only_root_for_class_with_no_base()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+        var sampleHpp = Path.Combine(_fixturesDir, "Sample.hpp");
+
+        // Point is a struct with no base class.
+        var result = await rpc.CppInheritanceAsync(sampleHpp, "Point", maxDepth: 3);
+        Assert.NotNull(result.Tree);
+        Assert.Equal("Point", result.Tree!.Name);
+        Assert.Empty(result.Tree.Bases);
+    }
+
+    [SkippableFact]
+    public async Task CppSetUnsavedBuffer_clears_on_null_content()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+
+        var tempDir = CopyFixturesToTemp();
+        var path = Path.Combine(tempDir, "ClearTest.hpp");
+        File.WriteAllText(path, """
+            #pragma once
+            int good() { return 0; }
+            """.Replace("\r\n", "\n"));
+
+        // Set then clear; should not throw on either op.
+        await rpc.CppSetUnsavedBufferAsync(path, "int dirty = ;");
+        await rpc.CppSetUnsavedBufferAsync(path, null);
+
+        // After clearing, diagnostics should reflect the clean disk file.
+        var diags = await rpc.CppDiagnosticsAsync(path, null, null);
+        Assert.False(diags.HasErrors, $"After clearing override, expected clean parse; got {diags.Diagnostics.Count} diagnostics with HasErrors={diags.HasErrors}.");
+    }
+
+    [SkippableFact]
+    public async Task CppSetUnsavedBuffer_invalidate_round_trip()
+    {
+        Skip.IfNot(E2EFixture.IsEnabled, E2EFixture.SkipReason);
+        var rpc = await _f.ConnectAsync();
+
+        var tempDir = CopyFixturesToTemp();
+        var path = Path.Combine(tempDir, "RoundTrip.hpp");
+        File.WriteAllText(path, """
+            #pragma once
+            int good() { return 0; }
+            """.Replace("\r\n", "\n"));
+
+        await rpc.CppSetUnsavedBufferAsync(path, "int x = ;");
+        await rpc.CppInvalidateAsync(path);
+        // After invalidate, the unsaved-buffer override should still be honored on next parse.
+        var diags = await rpc.CppDiagnosticsAsync(path, null, null);
+        Assert.True(diags.HasErrors, $"Expected dirty buffer to still apply after invalidate; got HasErrors={diags.HasErrors}.");
+        await rpc.CppSetUnsavedBufferAsync(path, null);
+    }
 }

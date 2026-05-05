@@ -46,6 +46,20 @@ internal static class CppOutlineParser
         @"^\s*(?:template\s*<[^>]+>\s*)?(?<sig>(?:inline\s+|static\s+|virtual\s+|constexpr\s+|explicit\s+|friend\s+|extern(?:\s*""[^""]*"")?\s+|noexcept\s+|\[\[[^\]]+\]\]\s+)*[\w:<>,\s\*\&]+?\s+(?<name>[A-Za-z_]\w*)\s*\([^)]*\)(?:\s+(?:const|noexcept|override|final|throw\s*\([^)]*\))|\s*=\s*(?:default|delete|0))*)\s*[{;]",
         RegexOptions.Compiled);
 
+    // Field declaration: `[storage]* [type] [name] [= initializer]? [array]? ;` — only matched
+    // when we're directly inside a class/struct body. No parens (rules out functions). The
+    // last identifier-then-optional-init-or-array-then-semicolon pattern is the field name.
+    // Allows: `int x;`, `const char* name_;`, `std::shared_ptr<Foo> p_;`, `int x = 0;`,
+    // `int values[10];`.
+    private static readonly Regex RxField = new(
+        @"^\s*(?:(?:static|mutable|constexpr|inline|thread_local)\s+)*" +
+        @"(?<type>[\w:<>,\s\*\&]+?)\s+" +
+        @"(?<name>[A-Za-z_]\w*)" +
+        @"(?:\s*\[[^\]]*\])?" +
+        @"(?:\s*=\s*[^;]+)?" +
+        @"\s*;\s*$",
+        RegexOptions.Compiled);
+
     public static CppOutlineResult Parse(string filePath, int maxDecls = 5000)
     {
         var result = new CppOutlineResult { File = filePath };
@@ -172,6 +186,18 @@ internal static class CppOutlineParser
                 CountBraces(line, ref braceDepth);
                 PopScopes(braceDepth, nsStack, classStack);
                 continue;
+            }
+            // Field declaration — only meaningful when we're directly inside a class body
+            // (one brace level deeper than the class's open brace). Avoids matching local
+            // variables in method bodies or file-scope variables.
+            if (classStack.Count > 0 && braceDepth == classStack.Peek().braceDepthAtEnter + 1)
+            {
+                if (TryMatchField(line, i + 1, ContainerString(nsStack, classStack), result))
+                {
+                    CountBraces(line, ref braceDepth);
+                    PopScopes(braceDepth, nsStack, classStack);
+                    continue;
+                }
             }
 
             CountBraces(line, ref braceDepth);
@@ -376,4 +402,35 @@ internal static class CppOutlineParser
         "reinterpret_cast",
     };
     private static bool IsKeyword(string name) => Keywords.Contains(name);
+
+    private static bool TryMatchField(string line, int lineNumber, string? container, CppOutlineResult result)
+    {
+        // Don't try to match access-specifier labels.
+        var trimmed = line.TrimStart();
+        if (trimmed.StartsWith("public:") || trimmed.StartsWith("private:") || trimmed.StartsWith("protected:")) return false;
+        // Don't try to match `using` aliases (they were caught by TryMatchUsingAlias if `=`,
+        // but `using Foo::bar;` style isn't a field).
+        if (trimmed.StartsWith("using ", StringComparison.Ordinal)) return false;
+        // Don't try to match `friend` declarations.
+        if (trimmed.StartsWith("friend ", StringComparison.Ordinal)) return false;
+
+        var m = RxField.Match(line);
+        if (!m.Success) return false;
+
+        var name = m.Groups["name"].Value;
+        if (IsKeyword(name)) return false;
+        // Sanity: type group must contain at least one non-keyword token.
+        var type = m.Groups["type"].Value.Trim();
+        if (string.IsNullOrEmpty(type)) return false;
+
+        result.Declarations.Add(new CppDecl
+        {
+            Kind = "field",
+            Name = name,
+            Container = container,
+            Line = lineNumber,
+            Signature = line.Trim(),
+        });
+        return true;
+    }
 }
