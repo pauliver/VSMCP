@@ -596,6 +596,128 @@ public sealed class CppOutlineParserTests
         finally { File.Delete(path); }
     }
 
+    // -------- Realistic-corpus tests (tests/Skills/Cpp/MiniRenderer/) --------
+    //
+    // These run against the on-disk corpus (Math.hpp, EventBus.hpp, Renderer.hpp,
+    // Renderer.cpp) so the parser is exercised against multi-file, real-world-shape
+    // C++ rather than synthetic single-file fixtures.
+
+    private static string CorpusFile(string name)
+    {
+        // Corpus files are copied into bin/Corpus/ via the csproj. System.AppContext.BaseDirectory
+        // is the test assembly's bin dir (xunit may shadow-copy the dll, but content files
+        // copied via <Content CopyToOutputDirectory=PreserveNewest> end up alongside).
+        var direct = Path.Combine(System.AppContext.BaseDirectory, "Corpus", name);
+        if (File.Exists(direct)) return direct;
+        // Fallback for when tests run from source layout (no shadow copy).
+        var src = Path.Combine(System.AppContext.BaseDirectory, "..", "..", "..", "..", "Skills", "Cpp", "MiniRenderer", name);
+        return Path.GetFullPath(src);
+    }
+
+    [Fact]
+    public void Corpus_Math_hpp_has_alignas_decorated_Vec3()
+    {
+        var outline = CppOutlineParser.Parse(CorpusFile("Math.hpp"));
+        Assert.Contains(outline.Declarations, d => d.Kind == "struct" && d.Name == "Vec3");
+        Assert.DoesNotContain(outline.Declarations, d => d.Name == "alignas");
+        Assert.DoesNotContain(outline.Declarations, d => d.Name == "__declspec");
+    }
+
+    [Fact]
+    public void Corpus_Math_hpp_has_nested_alignas_Slot()
+    {
+        var outline = CppOutlineParser.Parse(CorpusFile("Math.hpp"));
+        // alignas(alignof(K) > alignof(V) ? alignof(K) : alignof(V)) — nested parens.
+        Assert.Contains(outline.Declarations, d => d.Kind == "struct" && d.Name == "Slot");
+    }
+
+    [Fact]
+    public void Corpus_Math_hpp_emits_struct_fields()
+    {
+        var outline = CppOutlineParser.Parse(CorpusFile("Math.hpp"));
+        // Vec3 fields x, y, z, _pad
+        var vec3Fields = outline.Declarations
+            .Where(d => d.Kind == "field" && d.Container is not null && d.Container.EndsWith("Vec3"))
+            .Select(d => d.Name).ToList();
+        Assert.Contains("x", vec3Fields);
+        Assert.Contains("y", vec3Fields);
+        Assert.Contains("z", vec3Fields);
+    }
+
+    [Fact]
+    public void Corpus_EventBus_hpp_finds_multiline_Subscribe()
+    {
+        var outline = CppOutlineParser.Parse(CorpusFile("EventBus.hpp"));
+        // The Subscribe declaration spans 4 physical lines — pre-fix, the parser missed it.
+        Assert.Contains(outline.Declarations, d => d.Kind == "method" && d.Name == "Subscribe");
+        // No phantom fields named after Subscribe's parameters (#120).
+        var bogusNames = new[] { "fn", "userdata", "mode", "dll" };
+        foreach (var n in bogusNames)
+            Assert.DoesNotContain(outline.Declarations, d => d.Kind == "field" && d.Name == n);
+    }
+
+    [Fact]
+    public void Corpus_EventBus_hpp_finds_pure_virtuals()
+    {
+        var outline = CppOutlineParser.Parse(CorpusFile("EventBus.hpp"));
+        Assert.Contains(outline.Declarations, d => d.Kind == "method" && d.Name == "OnEvent");
+        Assert.Contains(outline.Declarations, d => d.Kind == "method" && d.Name == "Priority");
+    }
+
+    [Fact]
+    public void Corpus_Renderer_hpp_finds_inheritance_class()
+    {
+        var outline = CppOutlineParser.Parse(CorpusFile("Renderer.hpp"));
+        Assert.Contains(outline.Declarations, d => d.Kind == "class" && d.Name == "Renderer");
+        Assert.Contains(outline.Declarations, d => d.Kind == "class" && d.Name == "IDevice");
+    }
+
+    [Fact]
+    public void Corpus_Renderer_hpp_emits_private_fields()
+    {
+        var outline = CppOutlineParser.Parse(CorpusFile("Renderer.hpp"));
+        var rendererFields = outline.Declarations
+            .Where(d => d.Kind == "field" && d.Container is not null && d.Container.EndsWith("Renderer"))
+            .Select(d => d.Name).ToList();
+        Assert.Contains("frame_count_", rendererFields);
+        Assert.Contains("logger_", rendererFields);
+        Assert.Contains("current_pass_", rendererFields);
+        Assert.Contains("camera_pos_", rendererFields);
+    }
+
+    [Fact]
+    public void Corpus_Renderer_cpp_does_not_emit_RAII_guards_as_functions()
+    {
+        var outline = CppOutlineParser.Parse(CorpusFile("Renderer.cpp"));
+        // ScopedLock lk(mutex); inside Init/Shutdown bodies — must NOT be a function.
+        Assert.DoesNotContain(outline.Declarations, d => d.Kind == "function" && d.Name == "lk");
+        Assert.DoesNotContain(outline.Declarations, d => d.Kind == "function" && d.Name == "g");
+    }
+
+    [Fact]
+    public void Corpus_Renderer_cpp_finds_free_function()
+    {
+        var outline = CppOutlineParser.Parse(CorpusFile("Renderer.cpp"));
+        // ComputeFrameBudget is a free function at namespace mini::renderer scope.
+        Assert.Contains(outline.Declarations, d => d.Kind == "function" && d.Name == "ComputeFrameBudget");
+    }
+
+    [Fact]
+    public void Corpus_files_yield_zero_keyword_false_hits()
+    {
+        // Sanity sweep: the realistic corpus must not produce any declaration named after
+        // a C++ keyword. Mirrors the live Zengine sweep.
+        foreach (var f in new[] { "Math.hpp", "EventBus.hpp", "Renderer.hpp", "Renderer.cpp" })
+        {
+            var outline = CppOutlineParser.Parse(CorpusFile(f));
+            var keywords = new[] { "alignas", "noexcept", "operator", "sizeof", "typename",
+                "if", "for", "while", "return", "const", "virtual", "public", "private",
+                "protected", "static", "inline", "__declspec" };
+            var bogus = outline.Declarations.Where(d => System.Array.IndexOf(keywords, d.Name) >= 0).ToList();
+            Assert.True(bogus.Count == 0, $"{f} has bogus keyword names: {string.Join(", ", bogus.Select(b => $"{b.Kind}:{b.Name}@{b.Line}"))}");
+        }
+    }
+
     [Fact]
     public void Parse_handles_method_returning_pointer_to_template()
     {

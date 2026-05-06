@@ -54,9 +54,12 @@ internal static class CppOutlineParser
     // Function declaration / definition: return type + name + parens + opt trailing modifiers
     // (const, noexcept, override, final, = default, = delete, = 0). Trailing modifiers can
     // appear in sequence separated by whitespace (e.g. `const noexcept`); the wrapper-and-star
-    // pattern allows zero or more.
+    // pattern allows zero or more. The trailing `[{;]?` is OPTIONAL — function definitions
+    // whose body-`{` is on the next line are still emitted (e.g. `int Foo() { ... }` written
+    // K&R style). Risk of false-match is minimal because the param-list `\\(` and the
+    // identifier name pattern require a function-shaped signature.
     private static readonly Regex RxFunction = new(
-        @"^\s*(?:template\s*<[^>]+>\s*)?(?<sig>(?:inline\s+|static\s+|virtual\s+|constexpr\s+|explicit\s+|friend\s+|extern(?:\s*""[^""]*"")?\s+|noexcept\s+|\[\[[^\]]+\]\]\s+)*[\w:<>,\s\*\&]+?\s+(?<name>[A-Za-z_]\w*)\s*\([^)]*\)(?:\s+(?:const|noexcept|override|final|throw\s*\([^)]*\))|\s*=\s*(?:default|delete|0))*)\s*[{;]",
+        @"^\s*(?:template\s*<[^>]+>\s*)?(?<sig>(?:inline\s+|static\s+|virtual\s+|constexpr\s+|explicit\s+|friend\s+|extern(?:\s*""[^""]*"")?\s+|noexcept\s+|\[\[[^\]]+\]\]\s+)*[\w:<>,\s\*\&]+?\s+(?<name>[A-Za-z_]\w*)\s*\([^)]*\)(?:\s+(?:const|noexcept|override|final|throw\s*\([^)]*\))|\s*=\s*(?:default|delete|0))*)\s*(?:[{;]|$)",
         RegexOptions.Compiled);
 
     // Field declaration: `[storage]* [type] [name] [= initializer]? [array]? ;` — only matched

@@ -202,6 +202,46 @@ public interface IVsmcpRpc
     Task<BatchResult<ReferencesResult>> CodeFindReferencesManyAsync(IReadOnlyList<CodePosition> positions,
         int maxResults, CancellationToken cancellationToken = default);
 
+    // -------- Issue #122: _many batch variants for class/method/edit tools --------
+
+    // C++ batches
+    Task<BatchResult<CppReadMemberResult>> CppReadMemberManyAsync(IReadOnlyList<CppReadMemberItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<CppReplaceMemberResult>> CppReplaceMemberManyAsync(IReadOnlyList<CppReplaceMemberItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<CppOrganizeIncludesResult>> CppOrganizeIncludesManyAsync(IReadOnlyList<string> files, CancellationToken cancellationToken = default);
+    Task<BatchResult<bool>> CppSetUnsavedBufferManyAsync(IReadOnlyList<CppUnsavedBufferItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<bool>> CppInvalidateManyAsync(IReadOnlyList<string> files, CancellationToken cancellationToken = default);
+    Task<BatchResult<CppLocationListResult>> CppRenameManyAsync(IReadOnlyList<CppRenameItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<CppMoveTypeResult>> CppMoveTypeManyAsync(IReadOnlyList<CppMoveTypeItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<CppMoveMethodResult>> CppMoveMethodManyAsync(IReadOnlyList<CppMoveMethodItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<CppImplementInterfaceResult>> CppImplementInterfaceManyAsync(IReadOnlyList<CppImplementInterfaceItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<CppGenerateCtorResult>> CppGenerateConstructorManyAsync(IReadOnlyList<CppGenerateCtorItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<CppOverrideMemberResult>> CppOverrideMemberManyAsync(IReadOnlyList<CppOverrideMemberItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<CppGenerateEqualityResult>> CppGenerateEqualityManyAsync(IReadOnlyList<CppGenerateEqualityItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<CppQuickInfoResult>> CppQuickInfoManyAsync(IReadOnlyList<CppPositionItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<CppLocationListResult>> CppFindReferencesManyAsync(IReadOnlyList<CppPositionItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<CppLocationResult>> CppGotoDefinitionManyAsync(IReadOnlyList<CppPositionItem> items, CancellationToken cancellationToken = default);
+
+    // C# batches
+    Task<BatchResult<ReplaceMemberResult>> EditReplaceMemberManyAsync(IReadOnlyList<EditReplaceMemberItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<MoveTypeResult>> EditMoveTypeManyAsync(IReadOnlyList<EditMoveTypeItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<MoveTypeResult>> EditMoveMethodManyAsync(IReadOnlyList<EditMoveMethodItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<RenameResult>> EditRenameManyAsync(IReadOnlyList<EditRenameItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<AddUsingResult>> EditAddUsingManyAsync(IReadOnlyList<EditAddUsingItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<AddIncludeResult>> EditAddIncludeManyAsync(IReadOnlyList<EditAddIncludeItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<OrganizeUsingsResult>> EditOrganizeUsingsManyAsync(IReadOnlyList<string> files, CancellationToken cancellationToken = default);
+    Task<BatchResult<AddMemberResult>> CodeImplementInterfaceManyAsync(IReadOnlyList<CodeImplementInterfaceItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<AddMemberResult>> CodeOverrideMemberManyAsync(IReadOnlyList<CodeOverrideMemberItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<AddMemberResult>> CodeGenerateConstructorManyAsync(IReadOnlyList<CodeGenerateCtorItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<AddMemberResult>> CodeGenerateEqualityManyAsync(IReadOnlyList<CodeGenerateEqualityItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<QuickInfoResult>> CodeQuickInfoManyAsync(IReadOnlyList<CodePositionItem> items, CancellationToken cancellationToken = default);
+
+    // File batches (file.classes_many intentionally omitted: file.classes is project-wide,
+    // not per-file, so a list-of-files shape is meaningless.)
+    Task<BatchResult<MembersResult>> FileMembersManyAsync(IReadOnlyList<FileMembersItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<FileInfoResult>> FileInfoManyAsync(IReadOnlyList<string> files, CancellationToken cancellationToken = default);
+    Task<BatchResult<FileReadIfChangedResult>> FileReadIfChangedManyAsync(IReadOnlyList<FileReadIfChangedItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<FileOutlineResult>> FileOutlineManyAsync(IReadOnlyList<string> files, CancellationToken cancellationToken = default);
+
     // -------- M15: Refactoring & Editing --------
     Task<(int Replacements, string Text)> EditReplaceAllAsync(string file, string pattern, string replacement,
         int? maxReplacements, bool regex, CancellationToken cancellationToken = default);

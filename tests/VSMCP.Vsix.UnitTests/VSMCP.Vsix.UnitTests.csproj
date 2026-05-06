@@ -23,6 +23,16 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Realistic C++ corpus copied to bin/Corpus so unit tests can parse it without
+         depending on the source layout. xunit shadow-copies tests, so resolving relative
+         to Assembly.Location goes to %LOCALAPPDATA%, not the project dir. -->
+    <Content Include="..\Skills\Cpp\MiniRenderer\*">
+      <Link>Corpus\%(FileName)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\VSMCP.Shared\VSMCP.Shared.csproj" />
   </ItemGroup>
 </Project>
