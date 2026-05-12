@@ -255,6 +255,12 @@ public interface IVsmcpRpc
         CancellationToken cancellationToken = default);
     Task<ReplaceMemberResult> EditReplaceMemberAsync(string file, string className, string memberName, string newText,
         bool openInEditor, CancellationToken cancellationToken = default);
+
+    Task<ReplaceMemberResult> ProjectReplaceMemberAsync(string className, string memberName, string newCode, string? language, CancellationToken cancellationToken = default);
+    Task<AddMemberResult> ProjectAddMemberAsync(string className, string newCode, string? insertBefore, string? language, CancellationToken cancellationToken = default);
+    Task<BatchResult<AddMemberResult>> ProjectAddMemberToSubclassesAsync(string baseType, string newCode, string? language, CancellationToken cancellationToken = default);
+    Task<InvestigateSymbolResult> ProjectInvestigateSymbolAsync(string symbol, string? language, CancellationToken cancellationToken = default);
+    Task<CallGraphResult> ProjectCallGraphAsync(string className, string methodName, int maxDepth, string? language, CancellationToken cancellationToken = default);
     Task<MoveTypeResult> EditMoveTypeAsync(string file, string typeName, string? newNamespace, string? newFile,
         bool appendIfExists, CancellationToken cancellationToken = default);
     Task<MoveTypeResult> EditMoveMethodAsync(string file, string methodName, string? containerType, string? newFile,
