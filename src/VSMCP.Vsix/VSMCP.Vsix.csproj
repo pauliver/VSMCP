@@ -137,6 +137,7 @@
     <Compile Include="RpcTarget.CppMore.cs" />
     <Compile Include="RpcTarget.CppRefactor.cs" />
     <Compile Include="RpcTarget.Many.cs" />
+    <Compile Include="RpcTarget.ProjectEdit.cs" />
   </ItemGroup>
 
   <ItemGroup>
