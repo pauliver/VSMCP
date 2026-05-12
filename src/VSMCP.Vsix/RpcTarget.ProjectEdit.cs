@@ -8,7 +8,7 @@ using VSMCP.Shared;
 
 namespace VSMCP.Vsix;
 
-public partial class RpcTarget
+internal sealed partial class RpcTarget
 {
     public async Task<ReplaceMemberResult> ProjectReplaceMemberAsync(string className, string memberName, string newCode, string? language, CancellationToken cancellationToken = default)
     {
