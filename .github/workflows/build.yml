@@ -32,7 +32,8 @@ jobs:
       - name: Check Format
         shell: pwsh
         run: |
-          dotnet format src/VSMCP.sln --verify-no-changes --no-restore -v:minimal
+          dotnet format whitespace src/VSMCP.sln --verify-no-changes --no-restore -v:minimal
+          dotnet format style src/VSMCP.sln --verify-no-changes --no-restore -v:minimal
 
       - name: Test
         shell: pwsh
