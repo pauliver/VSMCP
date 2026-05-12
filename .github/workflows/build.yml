@@ -29,6 +29,17 @@ jobs:
         run: |
           msbuild src/VSMCP.sln -t:Restore,Build -p:Configuration=Release -v:minimal -nologo
 
+      - name: Check Format
+        shell: pwsh
+        run: |
+          dotnet format whitespace src/VSMCP.sln --verify-no-changes --no-restore -v:minimal
+          dotnet format style src/VSMCP.sln --verify-no-changes --no-restore -v:minimal
+
+      - name: Test
+        shell: pwsh
+        run: |
+          dotnet test src/VSMCP.sln -c Release --no-build -v:normal
+
       - name: Pack VSMCP.Server (dotnet tool)
         shell: pwsh
         run: |
