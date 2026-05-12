@@ -161,9 +161,21 @@ public partial class RpcTarget
                     {
                         if (usage.Type == "reference")
                         {
-                            // A real AST resolution here would find the calling class and method name.
-                            // Due to Roslyn's complexity, we're building the graph using the location of the caller.
-                            var childNode = new CallGraphNode { Name = $"{usage.File}:{usage.Line}", Location = new CodeSpan { File = usage.File, Line = usage.Line, Column = usage.Column }};
+                            CallGraphNode childNode = null;
+                            if (currentDepth + 1 < maxDepth)
+                            {
+                                // Attempt to parse out the class/method name from the usage file
+                                // As a placeholder, we use the file name as class, and line number as method.
+                                // A proper AST parser would be needed here to resolve the actual calling method.
+                                var callingClass = System.IO.Path.GetFileNameWithoutExtension(usage.File);
+                                var callingMethod = $"Line{usage.Line}";
+                                childNode = await TraceCallsAsync(callingClass, callingMethod, currentDepth + 1).ConfigureAwait(false);
+                            }
+                            else
+                            {
+                                childNode = new CallGraphNode { Name = $"{usage.File}:{usage.Line}", Location = new CodeSpan { File = usage.File, Line = usage.Line, Column = usage.Column }};
+                            }
+
                             node.CalledBy.Add(childNode);
                         }
                     }
