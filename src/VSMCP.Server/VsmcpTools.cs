@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
 using ModelContextProtocol.Server;
+using VSMCP.Core;
 using VSMCP.Shared;
 
 namespace VSMCP.Server;
@@ -505,6 +506,7 @@ public sealed partial class VsmcpTools
         [Description("Must be true. Acknowledges that constructors/resources may be skipped.")] bool allowSideEffects = false,
         CancellationToken ct = default)
     {
+        allowSideEffects = SideEffectPolicy.Enforce(allowSideEffects, _config.AllowSideEffects, "debug.set_next_statement");
         var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         return await proxy.DebugSetNextStatementAsync(file, line, allowSideEffects, ct).ConfigureAwait(false);
     }
@@ -677,6 +679,8 @@ public sealed partial class VsmcpTools
         [Description("Evaluation options. Expression is required. See EvalOptions for the full schema.")] EvalOptions options,
         CancellationToken ct = default)
     {
+        if (options is not null)
+            options.AllowSideEffects = SideEffectPolicy.Enforce(options.AllowSideEffects, _config.AllowSideEffects, "eval.expression");
         var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         return await proxy.EvalExpressionAsync(options, ct).ConfigureAwait(false);
     }
@@ -728,6 +732,7 @@ public sealed partial class VsmcpTools
         [Description("Must be true to actually perform the write. Defaults to false.")] bool allowSideEffects = false,
         CancellationToken ct = default)
     {
+        allowSideEffects = SideEffectPolicy.Enforce(allowSideEffects, _config.AllowSideEffects, "memory.write");
         var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         return await proxy.MemoryWriteAsync(address, hex, allowSideEffects, ct).ConfigureAwait(false);
     }
