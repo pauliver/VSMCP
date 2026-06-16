@@ -15,7 +15,11 @@ public sealed partial class VsmcpTools
         [Description("Absolute path to compile_commands.json.")] string compileCommandsPath,
         [Description("Absolute path to the source file whose flags you want.")] string file,
         CancellationToken ct = default)
-        => Task.FromResult(CompileCommandsReader.Read(compileCommandsPath, file));
+    {
+        // Server-local tool (no proxy), so translate faults to McpException here directly (#145).
+        try { return Task.FromResult(CompileCommandsReader.Read(compileCommandsPath, file)); }
+        catch (System.Exception ex) { throw FaultTranslatingRpc.ToMcp(ex); }
+    }
 
     [McpServerTool(Name = "cpp.header_lookup")]
     [Description("Find a C/C++ symbol's declaration by walking the #include chain of the given file. Best-effort: matches function declarations, class/struct/enum, typedef, and using-aliases via regex. No semantic analysis.")]
