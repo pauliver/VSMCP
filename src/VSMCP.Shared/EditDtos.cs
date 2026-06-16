@@ -53,3 +53,22 @@ public sealed class MoveTypeResult
 
 
 
+
+// #137: apply a unified diff through the editor.
+public sealed class ApplyPatchFileResult
+{
+    public string Path { get; set; } = "";
+    public bool Applied { get; set; }
+    public int HunksApplied { get; set; }
+    public int HunksFailed { get; set; }
+    public string? Error { get; set; }
+    /// <summary>On dryRun, the would-be new file content; null otherwise.</summary>
+    public string? PreviewText { get; set; }
+}
+
+public sealed class ApplyPatchResult
+{
+    public bool Success { get; set; }
+    public int FilesChanged { get; set; }
+    public List<ApplyPatchFileResult> Files { get; set; } = new();
+}

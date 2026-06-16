@@ -8,6 +8,17 @@ namespace VSMCP.Server;
 
 public sealed partial class VsmcpTools
 {
+    [McpServerTool(Name = "edit.apply_patch")]
+    [Description("Apply a unified diff (git-style ---/+++/@@ hunks) through the editor so VS undo works. Supports multiple files and hunks, with a small fuzz window for minor line drift. Relative paths resolve against the open solution's directory; absolute paths always work. Pass dryRun=true to get the would-be new content per file (PreviewText) without writing. Returns per-file applied/failed hunk counts.")]
+    public async Task<ApplyPatchResult> EditApplyPatch(
+        [Description("The unified diff text.")] string unifiedDiff,
+        [Description("When true, compute results + PreviewText without writing any file.")] bool dryRun = false,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.EditApplyPatchAsync(unifiedDiff, dryRun, ct).ConfigureAwait(false);
+    }
+
     [McpServerTool(Name = "edit.replace_all")]
     [Description("Replace all occurrences of a pattern in a single file. Pass regex=true for regex; otherwise literal string match. Returns the new file text and replacement count.")]
     public async Task<ReplaceAllResult> EditReplaceAll(
