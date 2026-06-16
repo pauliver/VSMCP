@@ -126,7 +126,6 @@
     <Compile Include="RpcTarget.SessionScope.cs" />
     <Compile Include="WorkspaceSidecar.cs" />
     <Compile Include="RpcTarget.WorkspaceSidecar.cs" />
-    <Compile Include="CppOutlineParser.cs" />
     <Compile Include="RpcTarget.CppOutline.cs" />
     <Compile Include="RpcTarget.CppSearch.cs" />
     <Compile Include="CppAnalyzerHost.cs" />
@@ -160,6 +159,12 @@
     <ProjectReference Include="..\VSMCP.Shared\VSMCP.Shared.csproj">
       <Project>{A1111111-1111-1111-1111-111111111111}</Project>
       <Name>VSMCP.Shared</Name>
+      <Private>true</Private>
+      <IncludeInVSIX>true</IncludeInVSIX>
+    </ProjectReference>
+    <ProjectReference Include="..\VSMCP.Core\VSMCP.Core.csproj">
+      <Project>{A4444444-4444-4444-4444-444444444444}</Project>
+      <Name>VSMCP.Core</Name>
       <Private>true</Private>
       <IncludeInVSIX>true</IncludeInVSIX>
     </ProjectReference>

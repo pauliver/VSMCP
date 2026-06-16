@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Pure logic with NO Visual Studio SDK dependency, so it is unit-testable with plain
+       `dotnet test`. Referenced by VSMCP.Vsix (net472) and the test project. net472 is built
+       so the VSIX gets a real framework assembly rather than a netstandard facade. -->
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net472</TargetFrameworks>
+    <RootNamespace>VSMCP.Core</RootNamespace>
+    <AssemblyName>VSMCP.Core</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\VSMCP.Shared\VSMCP.Shared.csproj" />
+  </ItemGroup>
+</Project>

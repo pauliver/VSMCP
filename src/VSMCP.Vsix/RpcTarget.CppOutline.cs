@@ -1,6 +1,7 @@
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using VSMCP.Core;
 using VSMCP.Shared;
 
 namespace VSMCP.Vsix;

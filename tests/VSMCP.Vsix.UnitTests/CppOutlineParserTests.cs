@@ -1,7 +1,7 @@
 using System.IO;
 using System.Linq;
+using VSMCP.Core;
 using VSMCP.Shared;
-using VSMCP.Vsix;
 using Xunit;
 
 namespace VSMCP.Tests.Vsix;

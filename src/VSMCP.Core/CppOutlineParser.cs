@@ -4,7 +4,7 @@ using System.IO;
 using System.Text.RegularExpressions;
 using VSMCP.Shared;
 
-namespace VSMCP.Vsix;
+namespace VSMCP.Core;
 
 /// <summary>
 /// Regex/state-machine outline scanner for C/C++ files. Not a real parser — handles the
@@ -13,7 +13,7 @@ namespace VSMCP.Vsix;
 /// Skips line + block comments and preprocessor directives. Tracks brace depth and a
 /// namespace stack so declarations are tagged with their containing scope.
 /// </summary>
-internal static class CppOutlineParser
+public static class CppOutlineParser
 {
     private static readonly Regex RxNamespace = new(
         @"^\s*namespace\s+(?<name>[A-Za-z_][\w:]*(?:::[A-Za-z_]\w*)*)\s*\{?",

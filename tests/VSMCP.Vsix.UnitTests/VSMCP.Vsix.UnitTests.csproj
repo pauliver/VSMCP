@@ -18,11 +18,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Pull in the parser source directly. CppOutlineParser is self-contained pure .NET -->
-    <Compile Include="..\..\src\VSMCP.Vsix\CppOutlineParser.cs" Link="Sut\CppOutlineParser.cs" />
-  </ItemGroup>
-
-  <ItemGroup>
     <!-- Realistic C++ corpus copied to bin/Corpus so unit tests can parse it without
          depending on the source layout. xunit shadow-copies tests, so resolving relative
          to Assembly.Location goes to %LOCALAPPDATA%, not the project dir. -->
@@ -34,5 +29,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\VSMCP.Shared\VSMCP.Shared.csproj" />
+    <ProjectReference Include="..\..\src\VSMCP.Core\VSMCP.Core.csproj" />
   </ItemGroup>
 </Project>

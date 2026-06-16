@@ -29,6 +29,11 @@ jobs:
         run: |
           msbuild src/VSMCP.sln -t:Restore,Build -p:Configuration=Release -v:minimal -nologo
 
+      - name: Test (unit)
+        shell: pwsh
+        run: |
+          dotnet test tests/VSMCP.Vsix.UnitTests/VSMCP.Vsix.UnitTests.csproj -c Release -v minimal --nologo
+
       - name: Pack VSMCP.Server (dotnet tool)
         shell: pwsh
         run: |
