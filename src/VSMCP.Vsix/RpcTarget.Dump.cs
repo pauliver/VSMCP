@@ -154,11 +154,20 @@ internal sealed partial class RpcTarget
 
             file = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None);
             var flags = full ? FullDumpFlags : MinidumpFlags;
-            if (!MiniDumpWriteDump(processHandle, (uint)pid, file.SafeFileHandle.DangerousGetHandle(), (uint)flags, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero))
-                throw new VsmcpException(ErrorCodes.InteropFault, $"MiniDumpWriteDump failed: {new Win32Exception(Marshal.GetLastWin32Error()).Message}");
+            bool ok = MiniDumpWriteDump(processHandle, (uint)pid, file.SafeFileHandle.DangerousGetHandle(), (uint)flags, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            int err = Marshal.GetLastWin32Error();
 
             file.Flush(true);
             var bytes = file.Length;
+
+            // MiniDumpWriteDump routinely returns false with ERROR_PARTIAL_COPY when dumping a LIVE
+            // process — some pages (guard/reserved/JIT/moving GC heap) can't be fully copied — yet it
+            // still writes a valid, loadable dump (ProcDump and WinDbg treat this as non-fatal). Only
+            // fail if nothing was written, or the failure is some other error.
+            const int ERROR_PARTIAL_COPY = 299;
+            if (!ok && !(err == ERROR_PARTIAL_COPY && bytes > 0))
+                throw new VsmcpException(ErrorCodes.InteropFault, $"MiniDumpWriteDump failed: {new Win32Exception(err).Message}");
+
             return new DumpSaveResult { Path = destPath, BytesWritten = bytes, Full = full };
         }
         finally

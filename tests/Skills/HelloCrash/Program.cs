@@ -19,8 +19,15 @@ internal static class Program
             case "stack":
                 Recurse(0);
                 break;
+            case "idle":
+                // Stay alive (bounded) so dump.save / attach tooling has a settled, live target.
+                // Self-exits after a couple of minutes so a test killed before teardown can't leave a
+                // zombie holding a file lock on the built exe (which would block the next build).
+                Console.WriteLine("idle: sleeping (bounded) until killed.");
+                System.Threading.Thread.Sleep(TimeSpan.FromMinutes(2));
+                break;
             default:
-                Console.WriteLine($"Unknown mode '{mode}'. Use: nre | aoor | stack.");
+                Console.WriteLine($"Unknown mode '{mode}'. Use: nre | aoor | stack | idle.");
                 return;
         }
     }
