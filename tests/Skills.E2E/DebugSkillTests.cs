@@ -26,6 +26,11 @@ public sealed class DebugSkillTests
         var rpc = await _f.ConnectAsync();
         var status = await rpc.GetStatusAsync();
         Skip.IfNot(status.SolutionOpen, "Open HelloCrash.sln in VS before running this test.");
+        // Drives the open solution's startup project under the debugger and breaks INSIDE
+        // HelloCrash, so it only applies when HelloCrash is the startup project. Against any other
+        // solution (e.g. VSMCP.sln) debug.launch runs a different app and never hits the breakpoint.
+        Skip.IfNot((status.StartupProject ?? "").IndexOf("HelloCrash", StringComparison.OrdinalIgnoreCase) >= 0,
+            "Requires HelloCrash as the startup project (open HelloCrash.sln).");
 
         var program = Path.Combine(_f.FixturesRoot, "HelloCrash", "Program.cs");
         Skip.IfNot(File.Exists(program), $"Expected fixture source at {program}.");
@@ -53,7 +58,9 @@ public sealed class DebugSkillTests
         }
         finally
         {
-            try { await rpc.DebugStopAsync(); } catch { }
+            // kill_and_stop avoids the modal "stop debugging?" confirmation that debug.stop can pop on
+            // VS 2022+, which would wedge the main thread in an unattended run.
+            try { await rpc.DebugKillAndStopAsync(); } catch { }
             try { await rpc.BreakpointRemoveAsync(bp.Id); } catch { }
         }
     }

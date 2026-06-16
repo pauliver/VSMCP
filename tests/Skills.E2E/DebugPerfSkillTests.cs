@@ -28,12 +28,23 @@ public sealed class DebugPerfSkillTests
         var hotLoopDir = Path.Combine(_f.FixturesRoot, "HotLoop");
         Skip.IfNot(Directory.Exists(hotLoopDir), $"Missing fixture: {hotLoopDir}");
 
+        // Launch the built apphost DIRECTLY. `dotnet run` forks a child, so proc.Id would be the
+        // launcher — the profiler would attach to it and never see BurnCpu (which runs in the app).
+        var exe = Path.Combine(hotLoopDir, "bin", "Debug", "net9.0", "HotLoop.exe");
+        if (!File.Exists(exe))
+        {
+            using var build = Process.Start(new ProcessStartInfo("dotnet", $"build \"{hotLoopDir}\" -c Debug --nologo")
+            { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true });
+            build?.WaitForExit(180_000);
+        }
+        Skip.IfNot(File.Exists(exe), $"Built apphost not found: {exe}");
+
         using var proc = new Process
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = "dotnet",
-                Arguments = $"run --project \"{hotLoopDir}\" -- cpu",
+                FileName = exe,
+                Arguments = "cpu",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -42,9 +53,8 @@ public sealed class DebugPerfSkillTests
         proc.Start();
         try
         {
-            // Wait until the .NET diagnostic port is up; `dotnet run` also compiles
-            // on first start, so give it plenty of time.
-            await Task.Delay(TimeSpan.FromSeconds(5));
+            // Give the app a moment to spin up its diagnostic port and start burning.
+            await Task.Delay(TimeSpan.FromSeconds(3));
 
             var started = await _f.Tools.ProfilerStart(proc.Id, ProfilerMode.CpuSampling);
             Assert.False(string.IsNullOrEmpty(started.SessionId));
