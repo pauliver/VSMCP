@@ -9,6 +9,14 @@ namespace VSMCP.Server;
 
 public sealed partial class VsmcpTools
 {
+    [McpServerTool(Name = "cpp.compile_flags")]
+    [Description("Resolve the include paths, defines, and C++ standard for a source file from a CMake/Ninja compile_commands.json. Returns absolute include paths (resolved against the entry's build directory) ready to pass as extraIncludes/extraDefines to cpp_diagnostics, cpp_quick_info, cpp_find_references, etc. Found=false when the file has no entry.")]
+    public Task<CppCompileFlagsResult> CppCompileFlags(
+        [Description("Absolute path to compile_commands.json.")] string compileCommandsPath,
+        [Description("Absolute path to the source file whose flags you want.")] string file,
+        CancellationToken ct = default)
+        => Task.FromResult(CompileCommandsReader.Read(compileCommandsPath, file));
+
     [McpServerTool(Name = "cpp.header_lookup")]
     [Description("Find a C/C++ symbol's declaration by walking the #include chain of the given file. Best-effort: matches function declarations, class/struct/enum, typedef, and using-aliases via regex. No semantic analysis.")]
     public async Task<HeaderLookupResult> CppHeaderLookup(

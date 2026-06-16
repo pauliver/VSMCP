@@ -316,3 +316,15 @@ public sealed class GeneratedFileInfo
     public string GeneratedFrom { get; set; } = "";
     public List<LineMapItem> LineMap { get; set; } = new();
 }
+
+/// <summary>#135: include/define/std flags resolved for one file from compile_commands.json.</summary>
+public sealed class CppCompileFlagsResult
+{
+    public string File { get; set; } = "";
+    public bool Found { get; set; }
+    public string? Directory { get; set; }
+    public List<string> Includes { get; set; } = new();
+    public List<string> SystemIncludes { get; set; } = new();
+    public List<string> Defines { get; set; } = new();
+    public string? Std { get; set; }
+}
