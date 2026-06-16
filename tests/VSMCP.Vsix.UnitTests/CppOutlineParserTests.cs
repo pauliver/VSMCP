@@ -1,5 +1,6 @@
 using System.IO;
 using System.Linq;
+using VSMCP.Shared;
 using VSMCP.Vsix;
 using Xunit;
 
