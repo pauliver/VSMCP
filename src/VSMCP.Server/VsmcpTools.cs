@@ -685,6 +685,18 @@ public sealed partial class VsmcpTools
         return await proxy.EvalExpressionAsync(options, ct).ConfigureAwait(false);
     }
 
+    [McpServerTool(Name = "debug.set_variable")]
+    [Description("Set a variable/expression in the current debug frame to a new value (evaluates 'name = value' with side effects). Requires break mode. Gated by the global allowSideEffects config like other side-effecting ops. Returns the resulting value/type.")]
+    public async Task<SetVariableResult> DebugSetVariable(
+        [Description("Variable or assignable expression, e.g. 'count' or 'this->size'.")] string name,
+        [Description("New value expression, e.g. '42' or '\"hello\"'.")] string value,
+        CancellationToken ct = default)
+    {
+        SideEffectPolicy.Enforce(true, _config.AllowSideEffects, "debug.set_variable");
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.DebugSetVariableAsync(name, value, ct).ConfigureAwait(false);
+    }
+
     [McpServerTool(Name = "modules.list")]
     [Description("List modules loaded into the debuggee, with symbol state, load address, and version. Requires an active debug session; modules are tracked starting from when VS loads this extension.")]
     public async Task<ModuleListResult> ModulesList(CancellationToken ct = default)
