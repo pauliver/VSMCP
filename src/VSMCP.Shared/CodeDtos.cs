@@ -96,3 +96,24 @@ public sealed class FormatResult
     public string File { get; set; } = "";
     public bool Changed { get; set; }
 }
+
+/// <summary>#138: one completion candidate.</summary>
+public sealed class CompletionEntry
+{
+    public string Name { get; set; } = "";
+    public string Kind { get; set; } = "";
+    public string? Signature { get; set; }
+}
+
+public sealed class CompletionResult
+{
+    public List<CompletionEntry> Items { get; set; } = new();
+    public bool Truncated { get; set; }
+}
+
+/// <summary>#138: overload signatures for the call at a position.</summary>
+public sealed class SignatureHelpResult
+{
+    public List<string> Signatures { get; set; } = new();
+    public int ActiveParameter { get; set; }
+}

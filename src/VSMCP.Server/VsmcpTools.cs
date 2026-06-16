@@ -931,6 +931,27 @@ public sealed partial class VsmcpTools
         return await proxy.CodeQuickInfoAsync(position, ct).ConfigureAwait(false);
     }
 
+    [McpServerTool(Name = "code.complete")]
+    [Description("Completion candidates at a 1-based position. After 'expr.' returns the accessible members of expr's type (including inherited); otherwise the symbols in scope. Each item has Name, Kind, and a display Signature. Useful for discovering an API surface without reading the type's source.")]
+    public async Task<CompletionResult> CodeComplete(
+        [Description("Source position: { File, Line, Column } (1-based).")] CodePosition position,
+        [Description("Max candidates (1..500, default 100).")] int maxResults = 100,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.CodeCompleteAsync(position, maxResults, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "code.signature_help")]
+    [Description("Overload signatures for the method call enclosing a 1-based position, plus the active parameter index (commas before the caret). Returns an empty list when the position isn't inside an invocation.")]
+    public async Task<SignatureHelpResult> CodeSignatureHelp(
+        [Description("Source position inside a call's argument list: { File, Line, Column } (1-based).")] CodePosition position,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.CodeSignatureHelpAsync(position, ct).ConfigureAwait(false);
+    }
+
     [McpServerTool(Name = "code.format")]
     [Description("Format a C#/VB document (or a 1-based line/column range) with the Roslyn Formatter, honoring the project's .editorconfig. Applied through the workspace so it groups with VS undo and shows in open buffers. Returns whether anything changed.")]
     public async Task<FormatResult> CodeFormat(

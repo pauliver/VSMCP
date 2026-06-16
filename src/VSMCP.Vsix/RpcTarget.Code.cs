@@ -310,6 +310,95 @@ internal sealed partial class RpcTarget
     }
 
     /// <summary>
+    /// Completion candidates at a position (#138). For `expr.` member access, lists the
+    /// accessible members of expr's type (including inherited); otherwise lists symbols in
+    /// scope via the semantic model. Uses only public Workspaces APIs (no EditorFeatures).
+    /// </summary>
+    public async Task<CompletionResult> CodeCompleteAsync(CodePosition position, int maxResults, CancellationToken cancellationToken = default)
+    {
+        if (position is null) throw new VsmcpException(ErrorCodes.NotFound, "position is required.");
+        if (maxResults <= 0) maxResults = 100;
+        if (maxResults > 500) maxResults = 500;
+
+        var ws = await GetWorkspaceAsync(cancellationToken);
+        var doc = FindDocumentAnywhere(ws.CurrentSolution, position.File)
+            ?? throw new VsmcpException(ErrorCodes.NotFound, $"File not part of any loaded project: {position.File}");
+        var text = await doc.GetTextAsync(cancellationToken).ConfigureAwait(false);
+        var pos = PositionFromLineCol(text, position.Line, position.Column);
+        var root = await doc.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
+        var sm = await doc.GetSemanticModelAsync(cancellationToken).ConfigureAwait(false);
+        var result = new CompletionResult();
+        if (root is null || sm is null) return result;
+
+        var token = root.FindToken(pos > 0 ? pos - 1 : 0);
+        var memberAccess = token.Parent?.AncestorsAndSelf().OfType<MemberAccessExpressionSyntax>()
+            .FirstOrDefault(m => m.OperatorToken.Span.End <= pos);
+
+        var symbols = new List<ISymbol>();
+        if (memberAccess is not null)
+        {
+            var type = sm.GetTypeInfo(memberAccess.Expression, cancellationToken).Type;
+            for (var t = type; t is not null; t = t.BaseType)
+                symbols.AddRange(t.GetMembers().Where(m => m.CanBeReferencedByName && m.DeclaredAccessibility == Accessibility.Public));
+        }
+        else
+        {
+            symbols.AddRange(sm.LookupSymbols(pos).Where(s => s.CanBeReferencedByName));
+        }
+
+        var seen = new HashSet<string>();
+        foreach (var s in symbols)
+        {
+            if (!seen.Add(s.Name)) continue;
+            if (result.Items.Count >= maxResults) { result.Truncated = true; break; }
+            result.Items.Add(new CompletionEntry { Name = s.Name, Kind = s.Kind.ToString(), Signature = s.ToDisplayString() });
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Signature help (#138): the overload signatures for the invocation enclosing the position,
+    /// plus the active parameter index (commas before the caret in the argument list).
+    /// </summary>
+    public async Task<SignatureHelpResult> CodeSignatureHelpAsync(CodePosition position, CancellationToken cancellationToken = default)
+    {
+        if (position is null) throw new VsmcpException(ErrorCodes.NotFound, "position is required.");
+        var ws = await GetWorkspaceAsync(cancellationToken);
+        var doc = FindDocumentAnywhere(ws.CurrentSolution, position.File)
+            ?? throw new VsmcpException(ErrorCodes.NotFound, $"File not part of any loaded project: {position.File}");
+        var text = await doc.GetTextAsync(cancellationToken).ConfigureAwait(false);
+        var pos = PositionFromLineCol(text, position.Line, position.Column);
+        var root = await doc.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
+        var sm = await doc.GetSemanticModelAsync(cancellationToken).ConfigureAwait(false);
+        var result = new SignatureHelpResult();
+        if (root is null || sm is null) return result;
+
+        var token = root.FindToken(pos > 0 ? pos - 1 : 0);
+        var invocation = token.Parent?.AncestorsAndSelf().OfType<InvocationExpressionSyntax>().FirstOrDefault();
+        if (invocation is null) return result;
+
+        var info = sm.GetSymbolInfo(invocation, cancellationToken);
+        var candidates = new List<ISymbol>();
+        if (info.Symbol is not null) candidates.Add(info.Symbol);
+        candidates.AddRange(info.CandidateSymbols);
+        var seen = new HashSet<string>();
+        foreach (var c in candidates)
+        {
+            var sig = c.ToDisplayString();
+            if (seen.Add(sig)) result.Signatures.Add(sig);
+        }
+
+        if (invocation.ArgumentList is not null)
+        {
+            int active = 0;
+            foreach (var sep in invocation.ArgumentList.Arguments.GetSeparators())
+                if (sep.Span.End <= pos) active++;
+            result.ActiveParameter = active;
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Format a document (or a range within it) with the Roslyn Formatter, honoring the
     /// project's .editorconfig (#136). Applied through Workspace.TryApplyChanges so the edit is
     /// grouped with VS undo and reflected in open buffers.
