@@ -7,6 +7,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.FindSymbols;
+using Microsoft.CodeAnalysis.Formatting;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.LanguageServices;
@@ -306,5 +307,39 @@ internal sealed partial class RpcTarget
         var xml = symbol.GetDocumentationCommentXml(expandIncludes: true, cancellationToken: cancellationToken);
         if (!string.IsNullOrWhiteSpace(xml)) result.Documentation = xml;
         return result;
+    }
+
+    /// <summary>
+    /// Format a document (or a range within it) with the Roslyn Formatter, honoring the
+    /// project's .editorconfig (#136). Applied through Workspace.TryApplyChanges so the edit is
+    /// grouped with VS undo and reflected in open buffers.
+    /// </summary>
+    public async Task<FormatResult> CodeFormatAsync(string file, FileRange? range, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(file)) throw new VsmcpException(ErrorCodes.NotFound, "file is required.");
+        var ws = await GetWorkspaceAsync(cancellationToken);
+        var doc = FindDocument(ws.CurrentSolution, file)
+            ?? throw new VsmcpException(ErrorCodes.NotFound, $"File not part of any loaded project: {file}");
+
+        var oldText = await doc.GetTextAsync(cancellationToken).ConfigureAwait(false);
+        Document formatted;
+        if (range is not null)
+        {
+            var start = PositionFromLineCol(oldText, range.StartLine, range.StartColumn);
+            var end = PositionFromLineCol(oldText, range.EndLine, range.EndColumn);
+            if (end < start) (start, end) = (end, start);
+            formatted = await Formatter.FormatAsync(doc, TextSpan.FromBounds(start, end), cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            formatted = await Formatter.FormatAsync(doc, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+
+        var newText = await formatted.GetTextAsync(cancellationToken).ConfigureAwait(false);
+        var changed = !newText.ContentEquals(oldText);
+        if (changed && !ws.TryApplyChanges(formatted.Project.Solution))
+            throw new VsmcpException(ErrorCodes.WorkspaceLocked, "Workspace rejected the format edit (TryApplyChanges returned false).");
+
+        return new FormatResult { File = file, Changed = changed };
     }
 }

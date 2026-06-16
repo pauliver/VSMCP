@@ -89,3 +89,10 @@ public sealed class QuickInfoResult
     public string? Kind { get; set; }
     public CodeSymbol? Symbol { get; set; }
 }
+
+/// <summary>#136: result of code.format.</summary>
+public sealed class FormatResult
+{
+    public string File { get; set; } = "";
+    public bool Changed { get; set; }
+}

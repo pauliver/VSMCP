@@ -167,6 +167,7 @@ public interface IVsmcpRpc
     Task<ReferencesResult> CodeFindReferencesAsync(CodePosition position, int maxResults, CancellationToken cancellationToken = default);
     Task<DiagnosticsResult> CodeDiagnosticsAsync(string? file, int maxResults, CancellationToken cancellationToken = default);
     Task<QuickInfoResult> CodeQuickInfoAsync(CodePosition position, CancellationToken cancellationToken = default);
+    Task<FormatResult> CodeFormatAsync(string file, FileRange? range, CancellationToken cancellationToken = default);
 
     // -------- M12: File & Symbol Discovery --------
     Task<FileListResult> FileListAsync(string? projectId, string? folder, string? pattern,

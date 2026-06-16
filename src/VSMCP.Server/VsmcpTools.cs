@@ -919,6 +919,17 @@ public sealed partial class VsmcpTools
         return await proxy.CodeQuickInfoAsync(position, ct).ConfigureAwait(false);
     }
 
+    [McpServerTool(Name = "code.format")]
+    [Description("Format a C#/VB document (or a 1-based line/column range) with the Roslyn Formatter, honoring the project's .editorconfig. Applied through the workspace so it groups with VS undo and shows in open buffers. Returns whether anything changed.")]
+    public async Task<FormatResult> CodeFormat(
+        [Description("Absolute path to the source file.")] string file,
+        [Description("Optional 1-based inclusive range to format. Omit to format the whole file.")] FileRange? range = null,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.CodeFormatAsync(file, range, ct).ConfigureAwait(false);
+    }
+
     // -------- Streaming counters (M8) --------
 
     [McpServerTool(Name = "counters.subscribe")]
