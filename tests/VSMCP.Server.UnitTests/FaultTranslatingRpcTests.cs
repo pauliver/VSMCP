@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using System.Threading.Tasks;
 using ModelContextProtocol;
 using VSMCP.Server;
@@ -63,5 +64,49 @@ public class FaultTranslatingRpcTests
     public async Task WrapVoid_SuccessfulTask_PassesThrough()
     {
         await FaultTranslatingRpc.WrapVoid(Task.CompletedTask);   // must not throw
+    }
+
+    // ---- Regression: the live path my earlier tests missed (#145 follow-up). ----
+    // FaultTranslatingRpc was `sealed`, so Wrap() -> DispatchProxy.Create<,> threw
+    // "The base type ... cannot be sealed." on EVERY connect, breaking all cross-pipe
+    // tools while the (compile- and unit-clean) #145 fix looked fine. These tests
+    // exercise the real Wrap()/Invoke path, not just the static helpers.
+
+    [Fact]
+    public void FaultTranslatingRpc_IsNotSealed_SoDispatchProxyCanSubclassIt()
+        => Assert.False(typeof(FaultTranslatingRpc).IsSealed);
+
+    [Fact]
+    public void Wrap_OverAProxy_DoesNotThrow()
+    {
+        var inner = MakeStub(_ => Task.FromResult<object?>(null));
+        var wrapped = FaultTranslatingRpc.Wrap(inner);   // threw ArgumentException while sealed
+        Assert.NotNull(wrapped);
+    }
+
+    [Fact]
+    public async Task Wrap_FaultingProxiedCall_SurfacesMcpException()
+    {
+        // Routes through DispatchProxy.Invoke -> MakeGenericMethod -> WrapResult -> ToMcp.
+        var inner = MakeStub(_ => Task.FromException<PingResult>(
+            new VsmcpException(ErrorCodes.NotDebugging, "no session")));
+        var wrapped = FaultTranslatingRpc.Wrap(inner);
+
+        var ex = await Assert.ThrowsAsync<McpException>(() => wrapped.PingAsync());
+        Assert.Equal("VSMCP-not-debugging: no session", ex.Message);
+    }
+
+    private static IVsmcpRpc MakeStub(Func<MethodInfo, object?> onInvoke)
+    {
+        var proxy = DispatchProxy.Create<IVsmcpRpc, StubRpc>();
+        ((StubRpc)(object)proxy).OnInvoke = onInvoke;
+        return (IVsmcpRpc)proxy;
+    }
+
+    public class StubRpc : DispatchProxy
+    {
+        public Func<MethodInfo, object?>? OnInvoke;
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+            => OnInvoke?.Invoke(targetMethod!);
     }
 }

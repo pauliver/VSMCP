@@ -14,8 +14,13 @@ namespace VSMCP.Server;
 /// code/message are recovered with <see cref="RpcError.FromException"/> (from #126), which
 /// reads either a typed <see cref="VsmcpException"/> or the "{code}: {message}" string a
 /// deserialized StreamJsonRpc RemoteInvocationException carries.
+///
+/// NOTE: must NOT be sealed — <see cref="DispatchProxy.Create{T,TProxy}"/> generates a runtime
+/// subclass of this type, so a sealed modifier makes <see cref="Wrap"/> throw
+/// "The base type ... cannot be sealed." on every connect (regression caught by
+/// <c>FaultTranslatingRpcTests.Wrap_*</c>).
 /// </summary>
-public sealed class FaultTranslatingRpc : DispatchProxy
+public class FaultTranslatingRpc : DispatchProxy
 {
     private IVsmcpRpc _inner = null!;
 
