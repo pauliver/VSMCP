@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using StreamJsonRpc;
+using VSMCP.Core;
 using VSMCP.Shared;
 
 namespace VSMCP.Vsix;
@@ -33,6 +34,8 @@ internal static class CppAnalyzerHost
     private static readonly System.Collections.Generic.LinkedList<string> s_recentLog = new();
     private const int RecentLogCap = 200;
     private static string? s_lastError;
+    // Bounds respawns so a sidecar that crashes on every start can't spin forever (#131).
+    private static readonly SidecarRestartPolicy s_restart = new();
 
     /// <summary>Process-wide log path for the sidecar's stderr. Null until the first spawn.</summary>
     public static string? LogPath { get { lock (s_lock) return s_logPath; } }
@@ -73,7 +76,11 @@ internal static class CppAnalyzerHost
     {
         lock (s_lock)
         {
-            if (s_connectTask is not null) return s_connectTask;
+            // Reuse a live (or still-connecting) session. A faulted/cancelled cached task means
+            // the previous connect failed or the sidecar died — drop it and reconnect, so a
+            // single transient failure doesn't permanently wedge every cpp_* tool (#131).
+            if (s_connectTask is not null && !s_connectTask.IsFaulted && !s_connectTask.IsCanceled)
+                return s_connectTask;
             s_connectTask = ConnectAsync(ct);
             return s_connectTask;
         }
@@ -81,6 +88,19 @@ internal static class CppAnalyzerHost
 
     private static async Task<IVsmcpCppRpc> ConnectAsync(CancellationToken ct)
     {
+        // Circuit-breaker: refuse to respawn if the sidecar has been crashing in a tight loop.
+        long nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        bool allowed;
+        lock (s_lock) allowed = s_restart.TryRegisterStart(nowMs);
+        if (!allowed)
+        {
+            var msg = "CppAnalyzer crashed repeatedly and was not restarted (circuit breaker open). " +
+                      $"See the sidecar log: {s_logPath ?? "<none>"}.";
+            s_lastError = msg;
+            AppendLog("[breaker] " + msg);
+            throw new VsmcpException(ErrorCodes.InteropFault, msg);
+        }
+
         var vsPid = Process.GetCurrentProcess().Id;
         var pipeName = PipeNaming.ForCppAnalyzer(vsPid);
 
@@ -169,6 +189,22 @@ internal static class CppAnalyzerHost
         var proxy = rpc.Attach<IVsmcpCppRpc>();
         rpc.StartListening();
         s_rpc = rpc;
+
+        // Watchdog: when this connection drops (sidecar exit/crash/pipe break), clear the
+        // cached session so the next GetProxyAsync transparently respawns (#131). Guard with
+        // a reference check so a stale completion can't clobber a newer connection.
+        _ = rpc.Completion.ContinueWith(_ =>
+        {
+            lock (s_lock)
+            {
+                if (ReferenceEquals(s_rpc, rpc))
+                {
+                    AppendLog("[watchdog] sidecar connection ended; will respawn on next call");
+                    s_connectTask = null;
+                    s_rpc = null;
+                }
+            }
+        }, TaskScheduler.Default);
 
         // Smoke ping so the caller fails fast on a broken sidecar.
         try { await proxy.PingAsync(ct).ConfigureAwait(false); }
