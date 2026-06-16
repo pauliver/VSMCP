@@ -53,6 +53,9 @@ internal sealed partial class RpcTarget
         try
         {
             var ops = await chosen.GetOperationsAsync(cancellationToken).ConfigureAwait(false);
+            // ApplyChangesOperation.Apply -> VisualStudioWorkspace.TryApplyChanges requires the
+            // UI thread; GetOperationsAsync used ConfigureAwait(false), so re-marshal first.
+            await _jtf.SwitchToMainThreadAsync(cancellationToken);
             foreach (var op in ops)
                 op.Apply(ws, cancellationToken);
             return new ApplyFixResult { Applied = true, AppliedTitle = chosen.Title };

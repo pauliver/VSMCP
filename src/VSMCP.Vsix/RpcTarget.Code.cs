@@ -395,7 +395,19 @@ internal sealed partial class RpcTarget
         var result = new TypeSurfaceResult();
         if (symbol is null) return result;
 
-        var type = symbol as INamedTypeSymbol ?? symbol.ContainingType;
+        // If the position resolves to a type, use it. If it's a variable/member, prefer its
+        // declared type (point at a local -> see that type's surface); else fall back to the
+        // containing type.
+        var type = symbol as INamedTypeSymbol
+            ?? (symbol switch
+            {
+                ILocalSymbol l => l.Type,
+                IFieldSymbol f => f.Type,
+                IParameterSymbol p => p.Type,
+                IPropertySymbol pr => pr.Type,
+                _ => null,
+            } as INamedTypeSymbol)
+            ?? symbol.ContainingType;
         if (type is null) return result;
         result.Type = type.ToDisplayString();
         result.Assembly = type.ContainingAssembly?.Name;
@@ -527,8 +539,14 @@ internal sealed partial class RpcTarget
 
         var newText = await formatted.GetTextAsync(cancellationToken).ConfigureAwait(false);
         var changed = !newText.ContentEquals(oldText);
-        if (changed && !ws.TryApplyChanges(formatted.Project.Solution))
-            throw new VsmcpException(ErrorCodes.WorkspaceLocked, "Workspace rejected the format edit (TryApplyChanges returned false).");
+        if (changed)
+        {
+            // VisualStudioWorkspace.TryApplyChanges must run on the UI thread; the awaits above
+            // used ConfigureAwait(false), so re-marshal before applying.
+            await _jtf.SwitchToMainThreadAsync(cancellationToken);
+            if (!ws.TryApplyChanges(formatted.Project.Solution))
+                throw new VsmcpException(ErrorCodes.WorkspaceLocked, "Workspace rejected the format edit (TryApplyChanges returned false).");
+        }
 
         return new FormatResult { File = file, Changed = changed };
     }
