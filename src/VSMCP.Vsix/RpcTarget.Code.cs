@@ -310,6 +310,107 @@ internal sealed partial class RpcTarget
     }
 
     /// <summary>
+    /// Call hierarchy at a position (#139). direction "callers" uses SymbolFinder.FindCallersAsync;
+    /// "callees" walks the symbol's declaration body for invoked symbols.
+    /// </summary>
+    public async Task<CallHierarchyResult> CodeCallHierarchyAsync(CodePosition position, string direction, int maxResults, CancellationToken cancellationToken = default)
+    {
+        if (position is null) throw new VsmcpException(ErrorCodes.NotFound, "position is required.");
+        if (maxResults <= 0) maxResults = 200;
+        if (maxResults > 2000) maxResults = 2000;
+        var callees = string.Equals(direction, "callees", StringComparison.OrdinalIgnoreCase);
+
+        var ws = await GetWorkspaceAsync(cancellationToken);
+        var doc = FindDocument(ws.CurrentSolution, position.File)
+            ?? throw new VsmcpException(ErrorCodes.NotFound, $"File not part of any loaded project: {position.File}");
+        var text = await doc.GetTextAsync(cancellationToken).ConfigureAwait(false);
+        var pos = PositionFromLineCol(text, position.Line, position.Column);
+        var symbol = await SymbolFinder.FindSymbolAtPositionAsync(doc, pos, cancellationToken).ConfigureAwait(false);
+        var result = new CallHierarchyResult { Direction = callees ? "callees" : "callers" };
+        if (symbol is null) return result;
+        result.Symbol = symbol.ToDisplayString();
+
+        if (!callees)
+        {
+            var callers = await SymbolFinder.FindCallersAsync(symbol, ws.CurrentSolution, cancellationToken).ConfigureAwait(false);
+            foreach (var c in callers)
+            {
+                if (result.Calls.Count >= maxResults) { result.Truncated = true; break; }
+                var entry = new CallHierarchyEntry
+                {
+                    Name = c.CallingSymbol.Name,
+                    ContainerName = c.CallingSymbol.ContainingSymbol?.ToDisplayString(),
+                    Signature = c.CallingSymbol.ToDisplayString(),
+                };
+                foreach (var loc in c.Locations)
+                    if (loc.IsInSource) entry.Locations.Add(SpanFromLocation(loc));
+                result.Calls.Add(entry);
+            }
+        }
+        else
+        {
+            var seen = new HashSet<string>();
+            foreach (var sref in symbol.DeclaringSyntaxReferences)
+            {
+                var node = await sref.GetSyntaxAsync(cancellationToken).ConfigureAwait(false);
+                var sm = await doc.Project.GetCompilationAsync(cancellationToken).ConfigureAwait(false) is { } comp
+                    ? comp.GetSemanticModel(node.SyntaxTree) : null;
+                if (sm is null) continue;
+                foreach (var inv in node.DescendantNodes().OfType<InvocationExpressionSyntax>())
+                {
+                    var callee = sm.GetSymbolInfo(inv, cancellationToken).Symbol;
+                    if (callee is null || !seen.Add(callee.ToDisplayString())) continue;
+                    if (result.Calls.Count >= maxResults) { result.Truncated = true; break; }
+                    var entry = new CallHierarchyEntry
+                    {
+                        Name = callee.Name,
+                        ContainerName = callee.ContainingSymbol?.ToDisplayString(),
+                        Signature = callee.ToDisplayString(),
+                    };
+                    foreach (var loc in callee.Locations)
+                        if (loc.IsInSource) entry.Locations.Add(SpanFromLocation(loc));
+                    result.Calls.Add(entry);
+                }
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Public API surface of the type at a position (#139), including metadata/framework types
+    /// that goto_definition can't open. Returns the type's public members' signatures.
+    /// </summary>
+    public async Task<TypeSurfaceResult> CodeTypeSurfaceAsync(CodePosition position, int maxResults, CancellationToken cancellationToken = default)
+    {
+        if (position is null) throw new VsmcpException(ErrorCodes.NotFound, "position is required.");
+        if (maxResults <= 0) maxResults = 300;
+        if (maxResults > 3000) maxResults = 3000;
+
+        var ws = await GetWorkspaceAsync(cancellationToken);
+        var doc = FindDocument(ws.CurrentSolution, position.File)
+            ?? throw new VsmcpException(ErrorCodes.NotFound, $"File not part of any loaded project: {position.File}");
+        var text = await doc.GetTextAsync(cancellationToken).ConfigureAwait(false);
+        var pos = PositionFromLineCol(text, position.Line, position.Column);
+        var symbol = await SymbolFinder.FindSymbolAtPositionAsync(doc, pos, cancellationToken).ConfigureAwait(false);
+        var result = new TypeSurfaceResult();
+        if (symbol is null) return result;
+
+        var type = symbol as INamedTypeSymbol ?? symbol.ContainingType;
+        if (type is null) return result;
+        result.Type = type.ToDisplayString();
+        result.Assembly = type.ContainingAssembly?.Name;
+        result.FromMetadata = !type.Locations.Any(l => l.IsInSource);
+
+        foreach (var m in type.GetMembers())
+        {
+            if (m.DeclaredAccessibility != Accessibility.Public || !m.CanBeReferencedByName) continue;
+            if (result.Members.Count >= maxResults) { result.Truncated = true; break; }
+            result.Members.Add(m.ToDisplayString());
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Completion candidates at a position (#138). For `expr.` member access, lists the
     /// accessible members of expr's type (including inherited); otherwise lists symbols in
     /// scope via the semantic model. Uses only public Workspaces APIs (no EditorFeatures).

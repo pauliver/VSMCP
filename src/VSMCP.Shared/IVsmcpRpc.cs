@@ -171,6 +171,8 @@ public interface IVsmcpRpc
     Task<FormatResult> CodeFormatAsync(string file, FileRange? range, CancellationToken cancellationToken = default);
     Task<CompletionResult> CodeCompleteAsync(CodePosition position, int maxResults, CancellationToken cancellationToken = default);
     Task<SignatureHelpResult> CodeSignatureHelpAsync(CodePosition position, CancellationToken cancellationToken = default);
+    Task<CallHierarchyResult> CodeCallHierarchyAsync(CodePosition position, string direction, int maxResults, CancellationToken cancellationToken = default);
+    Task<TypeSurfaceResult> CodeTypeSurfaceAsync(CodePosition position, int maxResults, CancellationToken cancellationToken = default);
 
     // -------- M12: File & Symbol Discovery --------
     Task<FileListResult> FileListAsync(string? projectId, string? folder, string? pattern,

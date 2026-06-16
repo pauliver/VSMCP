@@ -117,3 +117,30 @@ public sealed class SignatureHelpResult
     public List<string> Signatures { get; set; } = new();
     public int ActiveParameter { get; set; }
 }
+
+/// <summary>#139: one caller/callee in a call hierarchy.</summary>
+public sealed class CallHierarchyEntry
+{
+    public string Name { get; set; } = "";
+    public string? ContainerName { get; set; }
+    public string Signature { get; set; } = "";
+    public List<CodeSpan> Locations { get; set; } = new();
+}
+
+public sealed class CallHierarchyResult
+{
+    public string Symbol { get; set; } = "";
+    public string Direction { get; set; } = "callers";
+    public List<CallHierarchyEntry> Calls { get; set; } = new();
+    public bool Truncated { get; set; }
+}
+
+/// <summary>#139: the public API surface of a type (works for metadata/framework types).</summary>
+public sealed class TypeSurfaceResult
+{
+    public string Type { get; set; } = "";
+    public string? Assembly { get; set; }
+    public bool FromMetadata { get; set; }
+    public List<string> Members { get; set; } = new();
+    public bool Truncated { get; set; }
+}

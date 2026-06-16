@@ -931,6 +931,29 @@ public sealed partial class VsmcpTools
         return await proxy.CodeQuickInfoAsync(position, ct).ConfigureAwait(false);
     }
 
+    [McpServerTool(Name = "code.call_hierarchy")]
+    [Description("Call hierarchy for the symbol at a 1-based position. direction='callers' (default) finds everything that calls it (across the solution); direction='callees' lists the methods it calls. Each entry has the calling/called signature and in-source locations.")]
+    public async Task<CallHierarchyResult> CodeCallHierarchy(
+        [Description("Source position of the symbol: { File, Line, Column } (1-based).")] CodePosition position,
+        [Description("'callers' or 'callees'. Default 'callers'.")] string direction = "callers",
+        [Description("Max entries (1..2000, default 200).")] int maxResults = 200,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.CodeCallHierarchyAsync(position, direction, maxResults, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "code.type_surface")]
+    [Description("Public API surface (member signatures) of the type at a 1-based position — including framework/metadata types that code.goto_definition can't open (FromMetadata=true). Use this to see what a 3rd-party/BCL type offers without its source.")]
+    public async Task<TypeSurfaceResult> CodeTypeSurface(
+        [Description("Position resolving to a type or a member of one: { File, Line, Column } (1-based).")] CodePosition position,
+        [Description("Max members (1..3000, default 300).")] int maxResults = 300,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.CodeTypeSurfaceAsync(position, maxResults, ct).ConfigureAwait(false);
+    }
+
     [McpServerTool(Name = "code.complete")]
     [Description("Completion candidates at a 1-based position. After 'expr.' returns the accessible members of expr's type (including inherited); otherwise the symbols in scope. Each item has Name, Kind, and a display Signature. Useful for discovering an API surface without reading the type's source.")]
     public async Task<CompletionResult> CodeComplete(
