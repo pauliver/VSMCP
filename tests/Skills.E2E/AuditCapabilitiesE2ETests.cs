@@ -94,10 +94,12 @@ public sealed class AuditCapabilitiesE2ETests
         var status = await rpc.GetStatusAsync();
         Skip.IfNot(status.SolutionOpen, "Solution not open.");
 
-        var files = await rpc.FileListAsync(null, null, "RpcTarget.Code.cs", new[] { "file" }, 5);
-        Skip.If(files.Files.Count == 0, "RpcTarget.Code.cs not found.");
-        var file = files.Files[0].Path;
-        var pos = new CodePosition { File = file, Line = 1, Column = 1 };
+        // Resolve a real symbol's location for a guaranteed-valid position in a loaded document
+        // (more robust than a filename filter, whose match semantics + index readiness vary).
+        var sym = await rpc.CodeFindSymbolAsync("RpcTarget", null, 5);
+        Skip.If(sym.Matches.Count == 0 || sym.Matches[0].Location == null, "RpcTarget not resolved (workspace not loaded).");
+        var loc = sym.Matches[0].Location!;
+        var pos = new CodePosition { File = loc.File, Line = loc.StartLine, Column = loc.StartColumn };
 
         // None should throw; results may be empty depending on the exact position.
         _ = await rpc.CodeCompleteAsync(pos, 20);
