@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.Threading;
+using VSMCP.Core;
 using VSMCP.Shared;
 
 namespace VSMCP.Vsix;
@@ -16,8 +17,9 @@ internal sealed partial class RpcTarget
         if (searchRes.Classes.Count > 0 && searchRes.Classes[0].Location != null)
         {
             var file = searchRes.Classes[0].Location!.File;
-            var isCpp = file.EndsWith(".h") || file.EndsWith(".cpp") || file.EndsWith(".hpp") || file.EndsWith(".cc") || file.EndsWith(".cxx");
-            var isCsharp = file.EndsWith(".cs");
+            var lang = SourceLanguageDetector.FromPath(file);
+            var isCsharp = lang == SourceLanguage.CSharp;
+            var isCpp = lang == SourceLanguage.Cpp;
 
             if ((language == null && isCsharp) || string.Equals(language, "csharp", StringComparison.OrdinalIgnoreCase))
             {
@@ -42,8 +44,9 @@ internal sealed partial class RpcTarget
         if (searchRes.Classes.Count > 0 && searchRes.Classes[0].Location != null)
         {
             var file = searchRes.Classes[0].Location!.File;
-            var isCpp = file.EndsWith(".h") || file.EndsWith(".cpp") || file.EndsWith(".hpp") || file.EndsWith(".cc") || file.EndsWith(".cxx");
-            var isCsharp = file.EndsWith(".cs");
+            var lang = SourceLanguageDetector.FromPath(file);
+            var isCsharp = lang == SourceLanguage.CSharp;
+            var isCpp = lang == SourceLanguage.Cpp;
 
             if ((language == null && isCsharp) || string.Equals(language, "csharp", StringComparison.OrdinalIgnoreCase))
             {
@@ -74,8 +77,9 @@ internal sealed partial class RpcTarget
             var className = match.Name;
             var file = match.Location.File;
 
-            var isCsharp = file.EndsWith(".cs");
-            var isCpp = file.EndsWith(".h") || file.EndsWith(".cpp") || file.EndsWith(".hpp") || file.EndsWith(".cc") || file.EndsWith(".cxx");
+            var lang = SourceLanguageDetector.FromPath(file);
+            var isCsharp = lang == SourceLanguage.CSharp;
+            var isCpp = lang == SourceLanguage.Cpp;
 
             if (isCsharp)
             {
@@ -109,8 +113,9 @@ internal sealed partial class RpcTarget
         if (searchRes.Classes.Count > 0 && searchRes.Classes[0].Location != null)
         {
             var file = searchRes.Classes[0].Location!.File;
-            var isCpp = file.EndsWith(".h") || file.EndsWith(".cpp") || file.EndsWith(".hpp") || file.EndsWith(".cc") || file.EndsWith(".cxx");
-            var isCsharp = file.EndsWith(".cs");
+            var lang = SourceLanguageDetector.FromPath(file);
+            var isCsharp = lang == SourceLanguage.CSharp;
+            var isCpp = lang == SourceLanguage.Cpp;
 
             if ((language == null && isCsharp) || string.Equals(language, "csharp", StringComparison.OrdinalIgnoreCase))
             {
