@@ -80,6 +80,7 @@
     <Compile Include="RpcTarget.Dump.cs" />
     <Compile Include="RpcTarget.Diagnostics.cs" />
     <Compile Include="RpcTarget.Code.cs" />
+    <Compile Include="RpcTarget.CodeFix.cs" />
     <Compile Include="RpcTarget.Focus.cs" />
     <Compile Include="FocusHelper.cs" />
     <Compile Include="FollowMode.cs" />
@@ -153,6 +154,7 @@
     <PackageReference Include="StreamJsonRpc" Version="2.19.27" />
     <PackageReference Include="Microsoft.VisualStudio.LanguageServices" Version="4.9.2" ExcludeAssets="runtime" PrivateAssets="all" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.9.2" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Features" Version="4.9.2" ExcludeAssets="runtime" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>

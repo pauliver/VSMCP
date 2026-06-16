@@ -144,3 +144,22 @@ public sealed class TypeSurfaceResult
     public List<string> Members { get; set; } = new();
     public bool Truncated { get; set; }
 }
+
+/// <summary>#134: one available Roslyn code fix.</summary>
+public sealed class CodeFixInfo
+{
+    public string Title { get; set; } = "";
+    public string DiagnosticId { get; set; } = "";
+}
+
+public sealed class ListFixesResult
+{
+    public List<CodeFixInfo> Fixes { get; set; } = new();
+}
+
+public sealed class ApplyFixResult
+{
+    public bool Applied { get; set; }
+    public string? AppliedTitle { get; set; }
+    public string? Error { get; set; }
+}

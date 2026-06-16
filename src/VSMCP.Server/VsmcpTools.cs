@@ -931,6 +931,27 @@ public sealed partial class VsmcpTools
         return await proxy.CodeQuickInfoAsync(position, ct).ConfigureAwait(false);
     }
 
+    [McpServerTool(Name = "code.list_fixes")]
+    [Description("List the Roslyn code fixes (lightbulb actions) available for the diagnostic(s) on the line at a 1-based position — e.g. 'using System;' for CS0103. Each fix has a Title (pass it to code.apply_fix) and the DiagnosticId it addresses.")]
+    public async Task<ListFixesResult> CodeListFixes(
+        [Description("Position on the line with the diagnostic: { File, Line, Column } (1-based).")] CodePosition position,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.CodeListFixesAsync(position, ct).ConfigureAwait(false);
+    }
+
+    [McpServerTool(Name = "code.apply_fix")]
+    [Description("Apply a Roslyn code fix at a 1-based position, by Title (from code.list_fixes) or the first available when title is omitted. Edits are applied through the workspace so VS undo works. Returns the applied title or an error.")]
+    public async Task<ApplyFixResult> CodeApplyFix(
+        [Description("Position on the line with the diagnostic: { File, Line, Column } (1-based).")] CodePosition position,
+        [Description("Exact fix Title to apply; omit to apply the first available fix.")] string? title = null,
+        CancellationToken ct = default)
+    {
+        var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
+        return await proxy.CodeApplyFixAsync(position, title, ct).ConfigureAwait(false);
+    }
+
     [McpServerTool(Name = "code.call_hierarchy")]
     [Description("Call hierarchy for the symbol at a 1-based position. direction='callers' (default) finds everything that calls it (across the solution); direction='callees' lists the methods it calls. Each entry has the calling/called signature and in-source locations.")]
     public async Task<CallHierarchyResult> CodeCallHierarchy(
