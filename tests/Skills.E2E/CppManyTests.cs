@@ -135,8 +135,8 @@ public sealed class CppManyTests : IDisposable
 
         var items = new[]
         {
-            new CppPositionItem { File = sample, Line = 11, Column = 7 },  // class Sample
-            new CppPositionItem { File = sample, Line = 17, Column = 10 }, // method
+            new CodePosition { File = sample, Line = 11, Column = 7 },  // class Sample
+            new CodePosition { File = sample, Line = 17, Column = 10 }, // method
         };
         var result = await rpc.CppQuickInfoManyAsync(items);
         Assert.Equal(2, result.Total);
