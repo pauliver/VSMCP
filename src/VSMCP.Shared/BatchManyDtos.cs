@@ -80,13 +80,6 @@ public sealed class CppGenerateEqualityItem
     public string ClassName { get; set; } = "";
 }
 
-public sealed class CppPositionItem
-{
-    public string File { get; set; } = "";
-    public int Line { get; set; }
-    public int Column { get; set; }
-}
-
 // ---- C# / Roslyn batch item DTOs ----
 
 public sealed class EditReplaceMemberItem
@@ -161,13 +154,6 @@ public sealed class CodeGenerateEqualityItem
 {
     public string File { get; set; } = "";
     public string ClassName { get; set; } = "";
-}
-
-public sealed class CodePositionItem
-{
-    public string File { get; set; } = "";
-    public int Line { get; set; }
-    public int Column { get; set; }
 }
 
 // ---- File-side batch DTOs ----

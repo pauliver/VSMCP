@@ -112,7 +112,7 @@ private static string? RunGit(string workdir, string args)
             p.WaitForExit(5000);
             return p.ExitCode == 0 ? output : null;
         }
-        catch { return null; }
+        catch (System.Exception ex) { VsmcpLog.Debug("code.diff", "git diff invocation failed", ex); return null; }
     }
     }
 }

@@ -81,3 +81,13 @@ public sealed class EvalResult
     public bool IsExpandable { get; set; }
     public List<VariableInfo> Children { get; set; } = new();
 }
+
+/// <summary>#140: result of debug.set_variable.</summary>
+public sealed class SetVariableResult
+{
+    public string Name { get; set; } = "";
+    public bool Success { get; set; }
+    public string? Type { get; set; }
+    public string? Value { get; set; }
+    public string? Error { get; set; }
+}

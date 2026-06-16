@@ -89,3 +89,74 @@ public sealed class QuickInfoResult
     public string? Kind { get; set; }
     public CodeSymbol? Symbol { get; set; }
 }
+
+/// <summary>#136: result of code.format.</summary>
+public sealed class FormatResult
+{
+    public string File { get; set; } = "";
+    public bool Changed { get; set; }
+}
+
+/// <summary>#138: one completion candidate.</summary>
+public sealed class CompletionEntry
+{
+    public string Name { get; set; } = "";
+    public string Kind { get; set; } = "";
+    public string? Signature { get; set; }
+}
+
+public sealed class CompletionResult : ResultBase
+{
+    public List<CompletionEntry> Items { get; set; } = new();
+}
+
+/// <summary>#138: overload signatures for the call at a position.</summary>
+public sealed class SignatureHelpResult
+{
+    public List<string> Signatures { get; set; } = new();
+    public int ActiveParameter { get; set; }
+}
+
+/// <summary>#139: one caller/callee in a call hierarchy.</summary>
+public sealed class CallHierarchyEntry
+{
+    public string Name { get; set; } = "";
+    public string? ContainerName { get; set; }
+    public string Signature { get; set; } = "";
+    public List<CodeSpan> Locations { get; set; } = new();
+}
+
+public sealed class CallHierarchyResult : ResultBase
+{
+    public string Symbol { get; set; } = "";
+    public string Direction { get; set; } = "callers";
+    public List<CallHierarchyEntry> Calls { get; set; } = new();
+}
+
+/// <summary>#139: the public API surface of a type (works for metadata/framework types).</summary>
+public sealed class TypeSurfaceResult : ResultBase
+{
+    public string Type { get; set; } = "";
+    public string? Assembly { get; set; }
+    public bool FromMetadata { get; set; }
+    public List<string> Members { get; set; } = new();
+}
+
+/// <summary>#134: one available Roslyn code fix.</summary>
+public sealed class CodeFixInfo
+{
+    public string Title { get; set; } = "";
+    public string DiagnosticId { get; set; } = "";
+}
+
+public sealed class ListFixesResult
+{
+    public List<CodeFixInfo> Fixes { get; set; } = new();
+}
+
+public sealed class ApplyFixResult
+{
+    public bool Applied { get; set; }
+    public string? AppliedTitle { get; set; }
+    public string? Error { get; set; }
+}

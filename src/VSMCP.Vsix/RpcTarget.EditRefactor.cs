@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using VSMCP.Core;
 using VSMCP.Shared;
 
 namespace VSMCP.Vsix;
@@ -174,5 +175,78 @@ internal sealed partial class RpcTarget
             _ => ns,
         };
         return root.ReplaceNode(ns, updated);
+    }
+
+    /// <summary>
+    /// Apply a unified diff (#137). Each file patch is read through the live buffer, patched via
+    /// the pure <see cref="UnifiedDiff"/> engine, and (unless dryRun) written back through the
+    /// editor so VS undo still works. Relative paths in the diff resolve against the open
+    /// solution's directory. Per-file isolation: one file's failure doesn't abort the rest.
+    /// </summary>
+    public async Task<ApplyPatchResult> EditApplyPatchAsync(string unifiedDiff, bool dryRun, CancellationToken cancellationToken = default)
+    {
+        await _jtf.SwitchToMainThreadAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(unifiedDiff))
+            throw new VsmcpException(ErrorCodes.NotFound, "unifiedDiff is required.");
+
+        string? baseDir = null;
+        if (await _package.GetServiceAsync(typeof(EnvDTE.DTE)) is EnvDTE80.DTE2 dte
+            && dte.Solution?.FullName is string sln && !string.IsNullOrEmpty(sln))
+            baseDir = Path.GetDirectoryName(sln);
+
+        var patches = UnifiedDiff.Parse(unifiedDiff);
+        if (patches.Count == 0)
+            throw new VsmcpException(ErrorCodes.WrongState, "No file patches were found in the diff.");
+
+        var result = new ApplyPatchResult { Success = true };
+        foreach (var patch in patches)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var rel = string.IsNullOrEmpty(patch.NewPath) || patch.NewPath == "/dev/null" ? patch.OldPath : patch.NewPath;
+            var entry = new ApplyPatchFileResult { Path = rel };
+            try
+            {
+                var full = Path.IsPathRooted(rel) ? rel
+                    : baseDir is not null ? Path.GetFullPath(Path.Combine(baseDir, rel))
+                    : throw new VsmcpException(ErrorCodes.NotFound, $"Relative path '{rel}' needs an open solution to resolve; use an absolute path.");
+                entry.Path = full;
+
+                var current = (await FileReadAsync(full, null, cancellationToken).ConfigureAwait(false)).Content;
+                var applied = UnifiedDiff.Apply(current, patch);
+                entry.HunksApplied = applied.HunksApplied;
+                entry.HunksFailed = applied.HunksFailed;
+
+                if (!applied.Success)
+                {
+                    entry.Applied = false;
+                    entry.Error = string.Join("; ", applied.Failures);
+                    result.Success = false;
+                }
+                else if (dryRun)
+                {
+                    entry.Applied = false;
+                    entry.PreviewText = applied.NewText;
+                }
+                else
+                {
+                    await FileWriteAsync(full, applied.NewText!, cancellationToken).ConfigureAwait(false);
+                    entry.Applied = true;
+                    result.FilesChanged++;
+                }
+            }
+            catch (VsmcpException ex)
+            {
+                entry.Error = ex.Message;
+                result.Success = false;
+            }
+            catch (Exception ex)
+            {
+                entry.Error = ex.Message;
+                result.Success = false;
+                VsmcpLog.Debug("edit.apply_patch", $"failed for {entry.Path}", ex);
+            }
+            result.Files.Add(entry);
+        }
+        return result;
     }
 }

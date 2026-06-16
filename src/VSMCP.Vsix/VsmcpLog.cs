@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading;
+using VSMCP.Core;
 
 namespace VSMCP.Vsix;
 
@@ -21,47 +22,30 @@ namespace VSMCP.Vsix;
 /// </summary>
 internal static class VsmcpLog
 {
-    private static readonly object s_lock = new();
-    private static string? s_logPath;
+    private static RollingLogSink? s_sink;
     private static int s_initOnce;
 
-    private static void EnsureInit()
+    private static RollingLogSink EnsureInit()
     {
-        if (Interlocked.Exchange(ref s_initOnce, 1) != 0) return;
-        try
+        if (Interlocked.Exchange(ref s_initOnce, 1) == 0)
         {
             var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VSMCP", "logs");
-            Directory.CreateDirectory(dir);
-            s_logPath = Path.Combine(dir, "vsix.log");
-            File.WriteAllText(s_logPath, $"--- VSMCP.Vsix log {DateTime.UtcNow:O} ---{Environment.NewLine}");
+            var sink = new RollingLogSink(Path.Combine(dir, "vsix.log"), truncate: true);
+            sink.Append($"--- VSMCP.Vsix log {DateTime.UtcNow:O} ---");
+            Volatile.Write(ref s_sink, sink);
         }
-        catch
-        {
-            s_logPath = null;
-        }
+        return Volatile.Read(ref s_sink) ?? new RollingLogSink(null);
     }
 
     /// <summary>Path to the log file, or null if init failed. For diagnostics tools.</summary>
-    public static string? LogPath
-    {
-        get { EnsureInit(); return s_logPath; }
-    }
+    public static string? LogPath => EnsureInit().FilePath;
 
     [System.Diagnostics.Conditional("DEBUG")]
     public static void Debug(string category, string message, Exception? ex = null)
     {
-        try
-        {
-            EnsureInit();
-            if (s_logPath is null) return;
-            var line = ex is null
-                ? $"{DateTime.UtcNow:O} [{category}] {message}"
-                : $"{DateTime.UtcNow:O} [{category}] {message} | {ex.GetType().Name}: {ex.Message}";
-            lock (s_lock)
-            {
-                File.AppendAllText(s_logPath, line + Environment.NewLine);
-            }
-        }
-        catch { /* logging must never throw */ }
+        var line = ex is null
+            ? $"{DateTime.UtcNow:O} [{category}] {message}"
+            : $"{DateTime.UtcNow:O} [{category}] {message} | {ex.GetType().Name}: {ex.Message}";
+        EnsureInit().Append(line);
     }
 }

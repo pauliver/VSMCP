@@ -7,6 +7,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.FindSymbols;
+using Microsoft.CodeAnalysis.Formatting;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.LanguageServices;
@@ -306,5 +307,247 @@ internal sealed partial class RpcTarget
         var xml = symbol.GetDocumentationCommentXml(expandIncludes: true, cancellationToken: cancellationToken);
         if (!string.IsNullOrWhiteSpace(xml)) result.Documentation = xml;
         return result;
+    }
+
+    /// <summary>
+    /// Call hierarchy at a position (#139). direction "callers" uses SymbolFinder.FindCallersAsync;
+    /// "callees" walks the symbol's declaration body for invoked symbols.
+    /// </summary>
+    public async Task<CallHierarchyResult> CodeCallHierarchyAsync(CodePosition position, string direction, int maxResults, CancellationToken cancellationToken = default)
+    {
+        if (position is null) throw new VsmcpException(ErrorCodes.NotFound, "position is required.");
+        if (maxResults <= 0) maxResults = 200;
+        if (maxResults > 2000) maxResults = 2000;
+        var callees = string.Equals(direction, "callees", StringComparison.OrdinalIgnoreCase);
+
+        var ws = await GetWorkspaceAsync(cancellationToken);
+        var doc = FindDocument(ws.CurrentSolution, position.File)
+            ?? throw new VsmcpException(ErrorCodes.NotFound, $"File not part of any loaded project: {position.File}");
+        var text = await doc.GetTextAsync(cancellationToken).ConfigureAwait(false);
+        var pos = PositionFromLineCol(text, position.Line, position.Column);
+        var symbol = await SymbolFinder.FindSymbolAtPositionAsync(doc, pos, cancellationToken).ConfigureAwait(false);
+        var result = new CallHierarchyResult { Direction = callees ? "callees" : "callers" };
+        if (symbol is null) return result;
+        result.Symbol = symbol.ToDisplayString();
+
+        if (!callees)
+        {
+            var callers = await SymbolFinder.FindCallersAsync(symbol, ws.CurrentSolution, cancellationToken).ConfigureAwait(false);
+            foreach (var c in callers)
+            {
+                if (result.Calls.Count >= maxResults) { result.Truncated = true; break; }
+                var entry = new CallHierarchyEntry
+                {
+                    Name = c.CallingSymbol.Name,
+                    ContainerName = c.CallingSymbol.ContainingSymbol?.ToDisplayString(),
+                    Signature = c.CallingSymbol.ToDisplayString(),
+                };
+                foreach (var loc in c.Locations)
+                    if (loc.IsInSource) entry.Locations.Add(SpanFromLocation(loc));
+                result.Calls.Add(entry);
+            }
+        }
+        else
+        {
+            var seen = new HashSet<string>();
+            foreach (var sref in symbol.DeclaringSyntaxReferences)
+            {
+                var node = await sref.GetSyntaxAsync(cancellationToken).ConfigureAwait(false);
+                var sm = await doc.Project.GetCompilationAsync(cancellationToken).ConfigureAwait(false) is { } comp
+                    ? comp.GetSemanticModel(node.SyntaxTree) : null;
+                if (sm is null) continue;
+                foreach (var inv in node.DescendantNodes().OfType<InvocationExpressionSyntax>())
+                {
+                    var callee = sm.GetSymbolInfo(inv, cancellationToken).Symbol;
+                    if (callee is null || !seen.Add(callee.ToDisplayString())) continue;
+                    if (result.Calls.Count >= maxResults) { result.Truncated = true; break; }
+                    var entry = new CallHierarchyEntry
+                    {
+                        Name = callee.Name,
+                        ContainerName = callee.ContainingSymbol?.ToDisplayString(),
+                        Signature = callee.ToDisplayString(),
+                    };
+                    foreach (var loc in callee.Locations)
+                        if (loc.IsInSource) entry.Locations.Add(SpanFromLocation(loc));
+                    result.Calls.Add(entry);
+                }
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Public API surface of the type at a position (#139), including metadata/framework types
+    /// that goto_definition can't open. Returns the type's public members' signatures.
+    /// </summary>
+    public async Task<TypeSurfaceResult> CodeTypeSurfaceAsync(CodePosition position, int maxResults, CancellationToken cancellationToken = default)
+    {
+        if (position is null) throw new VsmcpException(ErrorCodes.NotFound, "position is required.");
+        if (maxResults <= 0) maxResults = 300;
+        if (maxResults > 3000) maxResults = 3000;
+
+        var ws = await GetWorkspaceAsync(cancellationToken);
+        var doc = FindDocument(ws.CurrentSolution, position.File)
+            ?? throw new VsmcpException(ErrorCodes.NotFound, $"File not part of any loaded project: {position.File}");
+        var text = await doc.GetTextAsync(cancellationToken).ConfigureAwait(false);
+        var pos = PositionFromLineCol(text, position.Line, position.Column);
+        var symbol = await SymbolFinder.FindSymbolAtPositionAsync(doc, pos, cancellationToken).ConfigureAwait(false);
+        var result = new TypeSurfaceResult();
+        if (symbol is null) return result;
+
+        // If the position resolves to a type, use it. If it's a variable/member, prefer its
+        // declared type (point at a local -> see that type's surface); else fall back to the
+        // containing type.
+        var type = symbol as INamedTypeSymbol
+            ?? (symbol switch
+            {
+                ILocalSymbol l => l.Type,
+                IFieldSymbol f => f.Type,
+                IParameterSymbol p => p.Type,
+                IPropertySymbol pr => pr.Type,
+                _ => null,
+            } as INamedTypeSymbol)
+            ?? symbol.ContainingType;
+        if (type is null) return result;
+        result.Type = type.ToDisplayString();
+        result.Assembly = type.ContainingAssembly?.Name;
+        result.FromMetadata = !type.Locations.Any(l => l.IsInSource);
+
+        foreach (var m in type.GetMembers())
+        {
+            if (m.DeclaredAccessibility != Accessibility.Public || !m.CanBeReferencedByName) continue;
+            if (result.Members.Count >= maxResults) { result.Truncated = true; break; }
+            result.Members.Add(m.ToDisplayString());
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Completion candidates at a position (#138). For `expr.` member access, lists the
+    /// accessible members of expr's type (including inherited); otherwise lists symbols in
+    /// scope via the semantic model. Uses only public Workspaces APIs (no EditorFeatures).
+    /// </summary>
+    public async Task<CompletionResult> CodeCompleteAsync(CodePosition position, int maxResults, CancellationToken cancellationToken = default)
+    {
+        if (position is null) throw new VsmcpException(ErrorCodes.NotFound, "position is required.");
+        if (maxResults <= 0) maxResults = 100;
+        if (maxResults > 500) maxResults = 500;
+
+        var ws = await GetWorkspaceAsync(cancellationToken);
+        var doc = FindDocumentAnywhere(ws.CurrentSolution, position.File)
+            ?? throw new VsmcpException(ErrorCodes.NotFound, $"File not part of any loaded project: {position.File}");
+        var text = await doc.GetTextAsync(cancellationToken).ConfigureAwait(false);
+        var pos = PositionFromLineCol(text, position.Line, position.Column);
+        var root = await doc.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
+        var sm = await doc.GetSemanticModelAsync(cancellationToken).ConfigureAwait(false);
+        var result = new CompletionResult();
+        if (root is null || sm is null) return result;
+
+        var token = root.FindToken(pos > 0 ? pos - 1 : 0);
+        var memberAccess = token.Parent?.AncestorsAndSelf().OfType<MemberAccessExpressionSyntax>()
+            .FirstOrDefault(m => m.OperatorToken.Span.End <= pos);
+
+        var symbols = new List<ISymbol>();
+        if (memberAccess is not null)
+        {
+            var type = sm.GetTypeInfo(memberAccess.Expression, cancellationToken).Type;
+            for (var t = type; t is not null; t = t.BaseType)
+                symbols.AddRange(t.GetMembers().Where(m => m.CanBeReferencedByName && m.DeclaredAccessibility == Accessibility.Public));
+        }
+        else
+        {
+            symbols.AddRange(sm.LookupSymbols(pos).Where(s => s.CanBeReferencedByName));
+        }
+
+        var seen = new HashSet<string>();
+        foreach (var s in symbols)
+        {
+            if (!seen.Add(s.Name)) continue;
+            if (result.Items.Count >= maxResults) { result.Truncated = true; break; }
+            result.Items.Add(new CompletionEntry { Name = s.Name, Kind = s.Kind.ToString(), Signature = s.ToDisplayString() });
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Signature help (#138): the overload signatures for the invocation enclosing the position,
+    /// plus the active parameter index (commas before the caret in the argument list).
+    /// </summary>
+    public async Task<SignatureHelpResult> CodeSignatureHelpAsync(CodePosition position, CancellationToken cancellationToken = default)
+    {
+        if (position is null) throw new VsmcpException(ErrorCodes.NotFound, "position is required.");
+        var ws = await GetWorkspaceAsync(cancellationToken);
+        var doc = FindDocumentAnywhere(ws.CurrentSolution, position.File)
+            ?? throw new VsmcpException(ErrorCodes.NotFound, $"File not part of any loaded project: {position.File}");
+        var text = await doc.GetTextAsync(cancellationToken).ConfigureAwait(false);
+        var pos = PositionFromLineCol(text, position.Line, position.Column);
+        var root = await doc.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
+        var sm = await doc.GetSemanticModelAsync(cancellationToken).ConfigureAwait(false);
+        var result = new SignatureHelpResult();
+        if (root is null || sm is null) return result;
+
+        var token = root.FindToken(pos > 0 ? pos - 1 : 0);
+        var invocation = token.Parent?.AncestorsAndSelf().OfType<InvocationExpressionSyntax>().FirstOrDefault();
+        if (invocation is null) return result;
+
+        var info = sm.GetSymbolInfo(invocation, cancellationToken);
+        var candidates = new List<ISymbol>();
+        if (info.Symbol is not null) candidates.Add(info.Symbol);
+        candidates.AddRange(info.CandidateSymbols);
+        var seen = new HashSet<string>();
+        foreach (var c in candidates)
+        {
+            var sig = c.ToDisplayString();
+            if (seen.Add(sig)) result.Signatures.Add(sig);
+        }
+
+        if (invocation.ArgumentList is not null)
+        {
+            int active = 0;
+            foreach (var sep in invocation.ArgumentList.Arguments.GetSeparators())
+                if (sep.Span.End <= pos) active++;
+            result.ActiveParameter = active;
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Format a document (or a range within it) with the Roslyn Formatter, honoring the
+    /// project's .editorconfig (#136). Applied through Workspace.TryApplyChanges so the edit is
+    /// grouped with VS undo and reflected in open buffers.
+    /// </summary>
+    public async Task<FormatResult> CodeFormatAsync(string file, FileRange? range, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(file)) throw new VsmcpException(ErrorCodes.NotFound, "file is required.");
+        var ws = await GetWorkspaceAsync(cancellationToken);
+        var doc = FindDocument(ws.CurrentSolution, file)
+            ?? throw new VsmcpException(ErrorCodes.NotFound, $"File not part of any loaded project: {file}");
+
+        var oldText = await doc.GetTextAsync(cancellationToken).ConfigureAwait(false);
+        Document formatted;
+        if (range is not null)
+        {
+            var start = PositionFromLineCol(oldText, range.StartLine, range.StartColumn);
+            var end = PositionFromLineCol(oldText, range.EndLine, range.EndColumn);
+            if (end < start) (start, end) = (end, start);
+            formatted = await Formatter.FormatAsync(doc, TextSpan.FromBounds(start, end), cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            formatted = await Formatter.FormatAsync(doc, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+
+        var newText = await formatted.GetTextAsync(cancellationToken).ConfigureAwait(false);
+        var changed = !newText.ContentEquals(oldText);
+        if (changed)
+        {
+            // VisualStudioWorkspace.TryApplyChanges must run on the UI thread; the awaits above
+            // used ConfigureAwait(false), so re-marshal before applying.
+            await _jtf.SwitchToMainThreadAsync(cancellationToken);
+            if (!ws.TryApplyChanges(formatted.Project.Solution))
+                throw new VsmcpException(ErrorCodes.WorkspaceLocked, "Workspace rejected the format edit (TryApplyChanges returned false).");
+        }
+
+        return new FormatResult { File = file, Changed = changed };
     }
 }

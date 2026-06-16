@@ -35,10 +35,11 @@ jobs:
           dotnet format whitespace src/VSMCP.sln --verify-no-changes --no-restore -v:minimal
           dotnet format style src/VSMCP.sln --verify-no-changes --no-restore -v:minimal
 
-      - name: Test
+      - name: Test (unit)
         shell: pwsh
         run: |
-          dotnet test src/VSMCP.sln -c Release --no-build -v:normal
+          dotnet test tests/VSMCP.Vsix.UnitTests/VSMCP.Vsix.UnitTests.csproj -c Release -v minimal --nologo
+          dotnet test tests/VSMCP.Server.UnitTests/VSMCP.Server.UnitTests.csproj -c Release -v minimal --nologo
 
       - name: Pack VSMCP.Server (dotnet tool)
         shell: pwsh

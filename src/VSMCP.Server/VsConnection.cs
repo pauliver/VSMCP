@@ -69,7 +69,9 @@ public sealed class VsConnection : IAsyncDisposable
         {
             ExceptionStrategy = ExceptionProcessing.ISerializable,
         };
-        var proxy = rpc.Attach<IVsmcpRpc>();
+        // Wrap so RPC faults surface to MCP clients as McpException ("{code}: {message}")
+        // instead of the SDK's generic "An error occurred invoking 'X'." (#145).
+        var proxy = FaultTranslatingRpc.Wrap(rpc.Attach<IVsmcpRpc>());
         rpc.StartListening();
 
         var hs = await proxy.HandshakeAsync(ProtocolVersion.Major, ProtocolVersion.Minor, ct).ConfigureAwait(false);

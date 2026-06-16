@@ -69,6 +69,8 @@ public interface IVsmcpRpc
     Task<CppMoveTypeResult> CppMoveTypeAsync(string sourceFile, string typeName, string targetFile, bool createTargetIfMissing, CancellationToken cancellationToken = default);
     Task<CppMoveMethodResult> CppMoveMethodAsync(string sourceFile, string className, string methodName, string targetFile, bool createTargetIfMissing, CancellationToken cancellationToken = default);
     Task<CppAnalyzerStatusResult> CppAnalyzerStatusAsync(int recentLogLines, CancellationToken cancellationToken = default);
+    Task<CppIndexResult> CppIndexFindAsync(string name, string? kind, int maxResults, CancellationToken cancellationToken = default);
+    Task<CppIndexStatsResult> CppIndexRebuildAsync(CancellationToken cancellationToken = default);
 
     Task<ProjectLoadResult> ProjectLoadAsync(string csprojPath, CancellationToken cancellationToken = default);
     Task<ProjectLoadFolderResult> ProjectLoadWorkspaceFolderAsync(string? rootPath, CancellationToken cancellationToken = default);
@@ -132,6 +134,7 @@ public interface IVsmcpRpc
     Task<VariableListResult> FrameLocalsAsync(int? threadId, int? frameIndex, int expandDepth, CancellationToken cancellationToken = default);
     Task<VariableListResult> FrameArgumentsAsync(int? threadId, int? frameIndex, int expandDepth, CancellationToken cancellationToken = default);
     Task<EvalResult> EvalExpressionAsync(EvalOptions options, CancellationToken cancellationToken = default);
+    Task<SetVariableResult> DebugSetVariableAsync(string name, string value, CancellationToken cancellationToken = default);
 
     // -------- Inspection: modules & symbols --------
     Task<ModuleListResult> ModulesListAsync(CancellationToken cancellationToken = default);
@@ -167,6 +170,13 @@ public interface IVsmcpRpc
     Task<ReferencesResult> CodeFindReferencesAsync(CodePosition position, int maxResults, CancellationToken cancellationToken = default);
     Task<DiagnosticsResult> CodeDiagnosticsAsync(string? file, int maxResults, CancellationToken cancellationToken = default);
     Task<QuickInfoResult> CodeQuickInfoAsync(CodePosition position, CancellationToken cancellationToken = default);
+    Task<FormatResult> CodeFormatAsync(string file, FileRange? range, CancellationToken cancellationToken = default);
+    Task<CompletionResult> CodeCompleteAsync(CodePosition position, int maxResults, CancellationToken cancellationToken = default);
+    Task<SignatureHelpResult> CodeSignatureHelpAsync(CodePosition position, CancellationToken cancellationToken = default);
+    Task<CallHierarchyResult> CodeCallHierarchyAsync(CodePosition position, string direction, int maxResults, CancellationToken cancellationToken = default);
+    Task<TypeSurfaceResult> CodeTypeSurfaceAsync(CodePosition position, int maxResults, CancellationToken cancellationToken = default);
+    Task<ListFixesResult> CodeListFixesAsync(CodePosition position, CancellationToken cancellationToken = default);
+    Task<ApplyFixResult> CodeApplyFixAsync(CodePosition position, string? title, CancellationToken cancellationToken = default);
 
     // -------- M12: File & Symbol Discovery --------
     Task<FileListResult> FileListAsync(string? projectId, string? folder, string? pattern,
@@ -217,9 +227,9 @@ public interface IVsmcpRpc
     Task<BatchResult<CppGenerateCtorResult>> CppGenerateConstructorManyAsync(IReadOnlyList<CppGenerateCtorItem> items, CancellationToken cancellationToken = default);
     Task<BatchResult<CppOverrideMemberResult>> CppOverrideMemberManyAsync(IReadOnlyList<CppOverrideMemberItem> items, CancellationToken cancellationToken = default);
     Task<BatchResult<CppGenerateEqualityResult>> CppGenerateEqualityManyAsync(IReadOnlyList<CppGenerateEqualityItem> items, CancellationToken cancellationToken = default);
-    Task<BatchResult<CppQuickInfoResult>> CppQuickInfoManyAsync(IReadOnlyList<CppPositionItem> items, CancellationToken cancellationToken = default);
-    Task<BatchResult<CppLocationListResult>> CppFindReferencesManyAsync(IReadOnlyList<CppPositionItem> items, CancellationToken cancellationToken = default);
-    Task<BatchResult<CppLocationResult>> CppGotoDefinitionManyAsync(IReadOnlyList<CppPositionItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<CppQuickInfoResult>> CppQuickInfoManyAsync(IReadOnlyList<CodePosition> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<CppLocationListResult>> CppFindReferencesManyAsync(IReadOnlyList<CodePosition> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<CppLocationResult>> CppGotoDefinitionManyAsync(IReadOnlyList<CodePosition> items, CancellationToken cancellationToken = default);
 
     // C# batches
     Task<BatchResult<ReplaceMemberResult>> EditReplaceMemberManyAsync(IReadOnlyList<EditReplaceMemberItem> items, CancellationToken cancellationToken = default);
@@ -233,7 +243,7 @@ public interface IVsmcpRpc
     Task<BatchResult<AddMemberResult>> CodeOverrideMemberManyAsync(IReadOnlyList<CodeOverrideMemberItem> items, CancellationToken cancellationToken = default);
     Task<BatchResult<AddMemberResult>> CodeGenerateConstructorManyAsync(IReadOnlyList<CodeGenerateCtorItem> items, CancellationToken cancellationToken = default);
     Task<BatchResult<AddMemberResult>> CodeGenerateEqualityManyAsync(IReadOnlyList<CodeGenerateEqualityItem> items, CancellationToken cancellationToken = default);
-    Task<BatchResult<QuickInfoResult>> CodeQuickInfoManyAsync(IReadOnlyList<CodePositionItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<QuickInfoResult>> CodeQuickInfoManyAsync(IReadOnlyList<CodePosition> items, CancellationToken cancellationToken = default);
 
     // File batches (file.classes_many intentionally omitted: file.classes is project-wide,
     // not per-file, so a list-of-files shape is meaningless.)
@@ -265,6 +275,7 @@ public interface IVsmcpRpc
         bool appendIfExists, CancellationToken cancellationToken = default);
     Task<MoveTypeResult> EditMoveMethodAsync(string file, string methodName, string? containerType, string? newFile,
         bool appendIfExists, CancellationToken cancellationToken = default);
+    Task<ApplyPatchResult> EditApplyPatchAsync(string unifiedDiff, bool dryRun, CancellationToken cancellationToken = default);
 
     // -------- M16: Navigation Context --------
     Task<NavigateResult> EditorNavigateToAsync(string file, int? line, int? column, bool openInEditor,

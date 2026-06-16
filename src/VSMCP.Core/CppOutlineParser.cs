@@ -4,7 +4,7 @@ using System.IO;
 using System.Text.RegularExpressions;
 using VSMCP.Shared;
 
-namespace VSMCP.Vsix;
+namespace VSMCP.Core;
 
 /// <summary>
 /// Regex/state-machine outline scanner for C/C++ files. Not a real parser — handles the
@@ -13,7 +13,7 @@ namespace VSMCP.Vsix;
 /// Skips line + block comments and preprocessor directives. Tracks brace depth and a
 /// namespace stack so declarations are tagged with their containing scope.
 /// </summary>
-internal static class CppOutlineParser
+public static class CppOutlineParser
 {
     private static readonly Regex RxNamespace = new(
         @"^\s*namespace\s+(?<name>[A-Za-z_][\w:]*(?:::[A-Za-z_]\w*)*)\s*\{?",
@@ -27,7 +27,7 @@ internal static class CppOutlineParser
     // specifiers AND one optional foo_API export macro (e.g. UE-style GAME_API). The
     // `(?<name>...)` group must be the first identifier that is not one of those.
     private static readonly Regex RxClassStructUnion = new(
-        @"^\s*(?:template\s*<[^>]+>\s*)?(?:export\s+)?(?<kind>class|struct|union)\s+" +
+        @"^\s*(?:template\s*<(?:[^<>]|<[^<>]*>)*>\s*)?(?:export\s+)?(?<kind>class|struct|union)\s+" +
         // alignas(...) and __declspec(...) can nest one level (e.g. alignof(K) inside).
         // The inner (?:[^()]|\([^()]*\))* matches balanced parens up to one level deep,
         // sufficient for `alignas(alignof(K) > alignof(V) ? alignof(K) : alignof(V))`.
@@ -40,7 +40,7 @@ internal static class CppOutlineParser
         RegexOptions.Compiled);
 
     private static readonly Regex RxEnum = new(
-        @"^\s*(?:template\s*<[^>]+>\s*)?enum\s+(?:class\s+|struct\s+)?(?<name>[A-Za-z_]\w*)\b",
+        @"^\s*(?:template\s*<(?:[^<>]|<[^<>]*>)*>\s*)?enum\s+(?:class\s+|struct\s+)?(?<name>[A-Za-z_]\w*)\b",
         RegexOptions.Compiled);
 
     private static readonly Regex RxTypedef = new(
@@ -59,7 +59,7 @@ internal static class CppOutlineParser
     // K&R style). Risk of false-match is minimal because the param-list `\\(` and the
     // identifier name pattern require a function-shaped signature.
     private static readonly Regex RxFunction = new(
-        @"^\s*(?:template\s*<[^>]+>\s*)?(?<sig>(?:inline\s+|static\s+|virtual\s+|constexpr\s+|explicit\s+|friend\s+|extern(?:\s*""[^""]*"")?\s+|noexcept\s+|\[\[[^\]]+\]\]\s+)*[\w:<>,\s\*\&]+?\s+(?<name>[A-Za-z_]\w*)\s*\([^)]*\)(?:\s+(?:const|noexcept|override|final|throw\s*\([^)]*\))|\s*=\s*(?:default|delete|0))*)\s*(?:[{;]|$)",
+        @"^\s*(?:template\s*<(?:[^<>]|<[^<>]*>)*>\s*)?(?<sig>(?:inline\s+|static\s+|virtual\s+|constexpr\s+|explicit\s+|friend\s+|extern(?:\s*""[^""]*"")?\s+|noexcept\s+|\[\[[^\]]+\]\]\s+)*[\w:<>,\s\*\&]+?\s+(?<name>[A-Za-z_]\w*)\s*\([^)]*\)(?:\s+(?:const|noexcept|override|final|throw\s*\([^)]*\))|\s*=\s*(?:default|delete|0))*)\s*(?:[{;]|$)",
         RegexOptions.Compiled);
 
     // Field declaration: `[storage]* [type] [name] [= initializer]? [array]? ;` — only matched
@@ -92,7 +92,7 @@ internal static class CppOutlineParser
         var nsStack = new Stack<(string name, int braceDepthAtEnter)>();
         var classStack = new Stack<(string kind, string name, int braceDepthAtEnter)>();
         int braceDepth = 0;
-        bool inBlockComment = false;
+        var lex = new CppLexState();
 
         // Pending class state — set when a class header is detected without an open brace
         // on the same line. Resolved when the next line shows a `{` (push to classStack)
@@ -110,7 +110,7 @@ internal static class CppOutlineParser
             }
 
             var rawLine = lines[i];
-            var line = StripComments(rawLine, ref inBlockComment);
+            var line = Sanitize(rawLine, ref lex);
 
             // Resolve pending class against this line BEFORE matching new declarations.
             if (pendingClassName is not null)
@@ -279,43 +279,122 @@ internal static class CppOutlineParser
         return n;
     }
 
-    private static string StripComments(string line, ref bool inBlock)
+    /// <summary>
+    /// Lexer state carried across physical lines: a block comment or a raw string literal can
+    /// both span multiple lines, and braces / "//" / quotes that live inside either must not
+    /// be interpreted as code.
+    /// </summary>
+    internal struct CppLexState
+    {
+        public bool InBlockComment;
+        /// <summary>Non-null while inside a raw string; holds its delimiter (often empty).</summary>
+        public string? RawStringDelim;
+    }
+
+    /// <summary>
+    /// Strip comments and blank the <em>contents</em> of string / char / raw-string literals,
+    /// preserving the surrounding code structure (#132). Literal bodies are replaced with empty
+    /// literals so that downstream brace counting (<see cref="CountBraces"/>) and the
+    /// declaration regexes never see a brace, "//", or quote that actually lives inside a
+    /// literal or comment. Handles line + block comments, escaped quotes in regular/char
+    /// literals, and multi-line raw strings R"delim( ... )delim".
+    /// </summary>
+    internal static string Sanitize(string line, ref CppLexState st)
     {
         var sb = new System.Text.StringBuilder(line.Length);
         int i = 0;
         while (i < line.Length)
         {
-            if (inBlock)
+            if (st.RawStringDelim != null)
             {
-                if (i + 1 < line.Length && line[i] == '*' && line[i + 1] == '/')
-                {
-                    inBlock = false;
-                    i += 2;
-                }
-                else { i++; }
+                var closer = ")" + st.RawStringDelim + "\"";
+                int idx = line.IndexOf(closer, i, StringComparison.Ordinal);
+                if (idx < 0) return sb.ToString();           // entire rest of line is raw content
+                sb.Append("\"\"");
+                i = idx + closer.Length;
+                st.RawStringDelim = null;
+                continue;
             }
-            else
+            if (st.InBlockComment)
             {
-                if (i + 1 < line.Length && line[i] == '/' && line[i + 1] == '/') { break; }
-                if (i + 1 < line.Length && line[i] == '/' && line[i + 1] == '*')
+                int idx = line.IndexOf("*/", i, StringComparison.Ordinal);
+                if (idx < 0) return sb.ToString();
+                st.InBlockComment = false;
+                i = idx + 2;
+                continue;
+            }
+
+            char c = line[i];
+
+            if (c == '/' && i + 1 < line.Length && line[i + 1] == '/') break;        // line comment
+            if (c == '/' && i + 1 < line.Length && line[i + 1] == '*') { st.InBlockComment = true; i += 2; continue; }
+
+            // Raw string literal start: R" possibly preceded by an encoding prefix (u8/u/U/L).
+            if (c == 'R' && i + 1 < line.Length && line[i + 1] == '"' && IsRawStringBoundary(line, i))
+            {
+                int p = i + 2;
+                int open = line.IndexOf('(', p);
+                if (open < 0) { sb.Append("\"\""); st.RawStringDelim = ""; return sb.ToString(); }
+                var delim = line.Substring(p, open - p);
+                var closer = ")" + delim + "\"";
+                int close = line.IndexOf(closer, open + 1, StringComparison.Ordinal);
+                sb.Append("\"\"");
+                if (close < 0) { st.RawStringDelim = delim; return sb.ToString(); }
+                i = close + closer.Length;
+                continue;
+            }
+
+            if (c == '"')                                                            // regular string
+            {
+                sb.Append('"');
+                i++;
+                while (i < line.Length && line[i] != '"')
                 {
-                    inBlock = true;
-                    i += 2;
-                }
-                else
-                {
-                    sb.Append(line[i]);
+                    if (line[i] == '\\' && i + 1 < line.Length) i++;                 // skip escape
                     i++;
                 }
+                if (i < line.Length) { sb.Append('"'); i++; }
+                continue;
             }
+
+            if (c == '\'')                                                           // char literal
+            {
+                sb.Append('\'');
+                i++;
+                while (i < line.Length && line[i] != '\'')
+                {
+                    if (line[i] == '\\' && i + 1 < line.Length) i++;
+                    i++;
+                }
+                if (i < line.Length) { sb.Append('\''); i++; }
+                continue;
+            }
+
+            sb.Append(c);
+            i++;
         }
         return sb.ToString();
     }
 
+    private static bool IsIdentChar(char c) => char.IsLetterOrDigit(c) || c == '_';
+
+    /// <summary>
+    /// True when the 'R' at <paramref name="rIndex"/> starts a raw-string prefix rather than
+    /// being the tail of an identifier. Allows the encoding prefixes u8/u/U/L immediately
+    /// before it; otherwise the preceding char must be a non-identifier boundary.
+    /// </summary>
+    private static bool IsRawStringBoundary(string line, int rIndex)
+    {
+        if (rIndex == 0) return true;
+        char prev = line[rIndex - 1];
+        if (prev == 'u' || prev == 'U' || prev == 'L' || prev == '8') return true;
+        return !IsIdentChar(prev);
+    }
+
     private static void CountBraces(string line, ref int depth)
     {
-        // Naive: count { and } outside of strings / chars. Strings are rare in declarations
-        // and getting them perfectly right needs a real lexer; skip for simplicity.
+        // Operates on the Sanitize()d line, so braces inside string / char / raw-string
+        // literals and comments are already gone.
         for (int i = 0; i < line.Length; i++)
         {
             char c = line[i];

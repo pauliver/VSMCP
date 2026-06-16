@@ -29,6 +29,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\VSMCP.Shared\VSMCP.Shared.csproj" />
+    <ProjectReference Include="..\VSMCP.Core\VSMCP.Core.csproj" />
   </ItemGroup>
   <Import Project="..\..\Signing.targets" Condition="Exists('..\..\Signing.targets')" />
 </Project>

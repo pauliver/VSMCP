@@ -199,6 +199,35 @@ internal sealed partial class RpcTarget
         return result;
     }
 
+    /// <summary>
+    /// Set a variable in the current frame (#140) by evaluating "name = value" with side effects.
+    /// Requires break mode. Side-effect gating is enforced server-side before this is reached.
+    /// </summary>
+    public async Task<SetVariableResult> DebugSetVariableAsync(string name, string value, CancellationToken cancellationToken = default)
+    {
+        await _jtf.SwitchToMainThreadAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(name)) throw new VsmcpException(ErrorCodes.NotFound, "name is required.");
+        var dte = await RequireDteAsync();
+        var debugger = RequireDebugging(dte);
+        if (debugger.CurrentMode != EnvDTE.dbgDebugMode.dbgBreakMode)
+            throw new VsmcpException(ErrorCodes.WrongState, "debug.set_variable requires the debugger to be in break mode.");
+
+        EnvDTE.Expression expr;
+        try { expr = debugger.GetExpression($"{name} = {value}", true, 5000); }
+        catch (Exception ex) { throw new VsmcpException(ErrorCodes.InteropFault, $"Set-variable failed: {ex.Message}", ex); }
+
+        var result = new SetVariableResult
+        {
+            Name = name,
+            Success = expr.IsValidValue,
+            Type = SafeGet(() => expr.Type),
+            Value = SafeGet(() => expr.Value),
+        };
+        if (!result.Success)
+            result.Error = SafeGet(() => expr.Value) ?? "assignment did not produce a valid value";
+        return result;
+    }
+
     // -------- helpers --------
 
     private async Task<ThreadInfo> SetThreadFrozenAsync(int threadId, bool freeze, CancellationToken ct)

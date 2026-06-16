@@ -128,7 +128,7 @@ public sealed partial class VsmcpTools
     [McpServerTool(Name = "cpp.quick_info_many")]
     [Description("Quick-info (libclang) for N (file, line, column) positions.")]
     public async Task<BatchResult<CppQuickInfoResult>> CppQuickInfoMany(
-        IReadOnlyList<CppPositionItem> items, CancellationToken ct = default)
+        IReadOnlyList<CodePosition> items, CancellationToken ct = default)
     {
         var p = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         return await p.CppQuickInfoManyAsync(items, ct).ConfigureAwait(false);
@@ -137,7 +137,7 @@ public sealed partial class VsmcpTools
     [McpServerTool(Name = "cpp.find_references_many")]
     [Description("Single-TU find-references for N positions. Use cpp.find_references_solution for cross-TU.")]
     public async Task<BatchResult<CppLocationListResult>> CppFindReferencesMany(
-        IReadOnlyList<CppPositionItem> items, CancellationToken ct = default)
+        IReadOnlyList<CodePosition> items, CancellationToken ct = default)
     {
         var p = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         return await p.CppFindReferencesManyAsync(items, ct).ConfigureAwait(false);
@@ -146,7 +146,7 @@ public sealed partial class VsmcpTools
     [McpServerTool(Name = "cpp.goto_definition_many")]
     [Description("Goto-definition for N positions (libclang).")]
     public async Task<BatchResult<CppLocationResult>> CppGotoDefinitionMany(
-        IReadOnlyList<CppPositionItem> items, CancellationToken ct = default)
+        IReadOnlyList<CodePosition> items, CancellationToken ct = default)
     {
         var p = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         return await p.CppGotoDefinitionManyAsync(items, ct).ConfigureAwait(false);
@@ -256,7 +256,7 @@ public sealed partial class VsmcpTools
     [McpServerTool(Name = "code.quick_info_many")]
     [Description("Roslyn quick-info for N (file, line, column) positions.")]
     public async Task<BatchResult<QuickInfoResult>> CodeQuickInfoMany(
-        IReadOnlyList<CodePositionItem> items, CancellationToken ct = default)
+        IReadOnlyList<CodePosition> items, CancellationToken ct = default)
     {
         var p = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
         return await p.CodeQuickInfoManyAsync(items, ct).ConfigureAwait(false);

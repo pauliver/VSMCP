@@ -214,10 +214,3 @@ internal static class VsHelpers
         return Microsoft.VisualStudio.Text.Span.FromBounds(start, end);
     }
 }
-
-internal sealed class VsmcpException : Exception
-{
-    public string Code { get; }
-    public VsmcpException(string code, string message) : base($"{code}: {message}") => Code = code;
-    public VsmcpException(string code, string message, Exception inner) : base($"{code}: {message}", inner) => Code = code;
-}

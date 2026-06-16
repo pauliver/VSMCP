@@ -12,7 +12,14 @@ namespace VSMCP.Server;
 public sealed class VsmcpConfig
 {
     public string LogLevel { get; set; } = "warning";
-    public bool AllowSideEffects { get; set; } = false;
+
+    /// <summary>
+    /// Global ceiling for side-effecting debug ops (eval/memory.write/set_next_statement).
+    /// A tool's per-call allowSideEffects only applies when this is also true. Defaults to true
+    /// (current behavior); set false to hard-disable side effects regardless of per-call flags.
+    /// Enforced via <c>VSMCP.Core.SideEffectPolicy</c>.
+    /// </summary>
+    public bool AllowSideEffects { get; set; } = true;
     public bool AllowDbgEng { get; set; } = false;
     public int DefaultTimeoutMs { get; set; } = 30_000;
     public bool FileLoggingEnabled { get; set; } = false;

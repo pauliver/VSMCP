@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.Shell;
@@ -381,6 +382,20 @@ internal sealed partial class RpcTarget
     private static void ApplyLaunchProperties(EnvDTE.Project project, DebugLaunchOptions options)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
+
+        string? projectFile = null;
+        try { projectFile = project.FullName; } catch { }
+
+        // SDK-style (.NET Core/5+) projects ignore the DTE StartArguments/StartWorkingDirectory/
+        // EnvironmentVariables config properties — they launch from launchSettings.json profiles.
+        // Writing those DTE props is a silent no-op there (#146), so route SDK projects through
+        // launchSettings and keep the legacy path for old-style projects.
+        if (IsSdkStyleProject(projectFile))
+        {
+            try { ApplyLaunchSettings(projectFile!, project, options); return; }
+            catch { /* fall back to the legacy DTE attempt below */ }
+        }
+
         try
         {
             var cfg = project.ConfigurationManager?.ActiveConfiguration;
@@ -404,5 +419,62 @@ internal sealed partial class RpcTarget
         ThreadHelper.ThrowIfNotOnUIThread();
         if (value is null) return;
         try { props.Item(name).Value = value; } catch { }
+    }
+
+    private static bool IsSdkStyleProject(string? projectFile)
+    {
+        if (string.IsNullOrEmpty(projectFile) || !File.Exists(projectFile)) return false;
+        if (!projectFile!.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)
+            && !projectFile.EndsWith(".vbproj", StringComparison.OrdinalIgnoreCase)
+            && !projectFile.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase))
+            return false;
+        try
+        {
+            // SDK-style projects declare an Sdk on the root element: <Project Sdk="Microsoft.NET.Sdk">.
+            foreach (var line in File.ReadLines(projectFile))
+            {
+                if (line.IndexOf("<Project", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return line.IndexOf("Sdk=", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    /// <summary>
+    /// Apply launch overrides (#146) to the active launchSettings.json profile for an SDK-style
+    /// project. Prefers the .csproj.user ActiveDebugProfile, then a profile named after the
+    /// project, then the first commandName=="Project" profile; creates a project-named profile
+    /// if none exist. Leaves unrelated profiles/keys untouched.
+    /// </summary>
+    private static void ApplyLaunchSettings(string projectFile, EnvDTE.Project project, DebugLaunchOptions options)
+    {
+        var projDir = Path.GetDirectoryName(projectFile)!;
+        var propsDir = Path.Combine(projDir, "Properties");
+        var settingsPath = Path.Combine(propsDir, "launchSettings.json");
+
+        string? existing = File.Exists(settingsPath) ? File.ReadAllText(settingsPath) : null;
+        string projName;
+        try { projName = project.Name; } catch { projName = Path.GetFileNameWithoutExtension(projectFile); }
+
+        var merged = LaunchSettingsMerger.Merge(
+            existing, projName, ReadActiveDebugProfile(projectFile),
+            options.Args, options.Cwd, options.Env);
+
+        Directory.CreateDirectory(propsDir);
+        File.WriteAllText(settingsPath, merged);
+    }
+
+    private static string? ReadActiveDebugProfile(string projectFile)
+    {
+        try
+        {
+            var userFile = projectFile + ".user";
+            if (!File.Exists(userFile)) return null;
+            var doc = System.Xml.Linq.XDocument.Load(userFile);
+            var el = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "ActiveDebugProfile");
+            return string.IsNullOrWhiteSpace(el?.Value) ? null : el!.Value.Trim();
+        }
+        catch { return null; }
     }
 }

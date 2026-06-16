@@ -15,11 +15,15 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Pull in the parser source directly. CppOutlineParser is self-contained pure .NET -->
-    <Compile Include="..\..\src\VSMCP.Vsix\CppOutlineParser.cs" Link="Sut\CppOutlineParser.cs" />
+    <!-- Link the pure launchSettings merge logic (#146) — no VS SDK dependency, so it compiles
+         standalone here. The full RpcTarget.Debug.cs stays out (it needs EnvDTE). -->
+    <Compile Include="..\..\src\VSMCP.Vsix\LaunchSettingsMerger.cs">
+      <Link>LaunchSettingsMerger.cs</Link>
+    </Compile>
   </ItemGroup>
 
   <ItemGroup>
@@ -34,5 +38,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\VSMCP.Shared\VSMCP.Shared.csproj" />
+    <ProjectReference Include="..\..\src\VSMCP.Core\VSMCP.Core.csproj" />
   </ItemGroup>
 </Project>
