@@ -90,13 +90,13 @@ internal sealed partial class RpcTarget
     public Task<BatchResult<CppGenerateEqualityResult>> CppGenerateEqualityManyAsync(IReadOnlyList<CppGenerateEqualityItem> items, CancellationToken ct = default)
         => RunBatchAsync(items, (i, c) => CppGenerateEqualityAsync(i.File, i.ClassName, c), ct);
 
-    public Task<BatchResult<CppQuickInfoResult>> CppQuickInfoManyAsync(IReadOnlyList<CppPositionItem> items, CancellationToken ct = default)
+    public Task<BatchResult<CppQuickInfoResult>> CppQuickInfoManyAsync(IReadOnlyList<CodePosition> items, CancellationToken ct = default)
         => RunBatchAsync(items, (i, c) => CppQuickInfoAsync(i.File, i.Line, i.Column, null, null, c), ct);
 
-    public Task<BatchResult<CppLocationListResult>> CppFindReferencesManyAsync(IReadOnlyList<CppPositionItem> items, CancellationToken ct = default)
+    public Task<BatchResult<CppLocationListResult>> CppFindReferencesManyAsync(IReadOnlyList<CodePosition> items, CancellationToken ct = default)
         => RunBatchAsync(items, (i, c) => CppFindReferencesSemAsync(i.File, i.Line, i.Column, null, null, c), ct);
 
-    public Task<BatchResult<CppLocationResult>> CppGotoDefinitionManyAsync(IReadOnlyList<CppPositionItem> items, CancellationToken ct = default)
+    public Task<BatchResult<CppLocationResult>> CppGotoDefinitionManyAsync(IReadOnlyList<CodePosition> items, CancellationToken ct = default)
         => RunBatchAsync(items, (i, c) => CppGotoDefinitionAsync(i.File, i.Line, i.Column, null, null, c), ct);
 
     // ---- C# / Roslyn batches ----
@@ -135,8 +135,8 @@ internal sealed partial class RpcTarget
     public Task<BatchResult<AddMemberResult>> CodeGenerateEqualityManyAsync(IReadOnlyList<CodeGenerateEqualityItem> items, CancellationToken ct = default)
         => RunBatchAsync(items, (i, c) => CodeGenerateEqualityAsync(i.File, i.ClassName, c), ct);
 
-    public Task<BatchResult<QuickInfoResult>> CodeQuickInfoManyAsync(IReadOnlyList<CodePositionItem> items, CancellationToken ct = default)
-        => RunBatchAsync(items, (i, c) => CodeQuickInfoAsync(new CodePosition { File = i.File, Line = i.Line, Column = i.Column }, c), ct);
+    public Task<BatchResult<QuickInfoResult>> CodeQuickInfoManyAsync(IReadOnlyList<CodePosition> items, CancellationToken ct = default)
+        => RunBatchAsync(items, (i, c) => CodeQuickInfoAsync(i, c), ct);
 
     // ---- File batches ----
 

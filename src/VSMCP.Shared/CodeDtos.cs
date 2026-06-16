@@ -105,10 +105,9 @@ public sealed class CompletionEntry
     public string? Signature { get; set; }
 }
 
-public sealed class CompletionResult
+public sealed class CompletionResult : ResultBase
 {
     public List<CompletionEntry> Items { get; set; } = new();
-    public bool Truncated { get; set; }
 }
 
 /// <summary>#138: overload signatures for the call at a position.</summary>
@@ -127,22 +126,20 @@ public sealed class CallHierarchyEntry
     public List<CodeSpan> Locations { get; set; } = new();
 }
 
-public sealed class CallHierarchyResult
+public sealed class CallHierarchyResult : ResultBase
 {
     public string Symbol { get; set; } = "";
     public string Direction { get; set; } = "callers";
     public List<CallHierarchyEntry> Calls { get; set; } = new();
-    public bool Truncated { get; set; }
 }
 
 /// <summary>#139: the public API surface of a type (works for metadata/framework types).</summary>
-public sealed class TypeSurfaceResult
+public sealed class TypeSurfaceResult : ResultBase
 {
     public string Type { get; set; } = "";
     public string? Assembly { get; set; }
     public bool FromMetadata { get; set; }
     public List<string> Members { get; set; } = new();
-    public bool Truncated { get; set; }
 }
 
 /// <summary>#134: one available Roslyn code fix.</summary>

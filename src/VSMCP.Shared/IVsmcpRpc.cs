@@ -227,9 +227,9 @@ public interface IVsmcpRpc
     Task<BatchResult<CppGenerateCtorResult>> CppGenerateConstructorManyAsync(IReadOnlyList<CppGenerateCtorItem> items, CancellationToken cancellationToken = default);
     Task<BatchResult<CppOverrideMemberResult>> CppOverrideMemberManyAsync(IReadOnlyList<CppOverrideMemberItem> items, CancellationToken cancellationToken = default);
     Task<BatchResult<CppGenerateEqualityResult>> CppGenerateEqualityManyAsync(IReadOnlyList<CppGenerateEqualityItem> items, CancellationToken cancellationToken = default);
-    Task<BatchResult<CppQuickInfoResult>> CppQuickInfoManyAsync(IReadOnlyList<CppPositionItem> items, CancellationToken cancellationToken = default);
-    Task<BatchResult<CppLocationListResult>> CppFindReferencesManyAsync(IReadOnlyList<CppPositionItem> items, CancellationToken cancellationToken = default);
-    Task<BatchResult<CppLocationResult>> CppGotoDefinitionManyAsync(IReadOnlyList<CppPositionItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<CppQuickInfoResult>> CppQuickInfoManyAsync(IReadOnlyList<CodePosition> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<CppLocationListResult>> CppFindReferencesManyAsync(IReadOnlyList<CodePosition> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<CppLocationResult>> CppGotoDefinitionManyAsync(IReadOnlyList<CodePosition> items, CancellationToken cancellationToken = default);
 
     // C# batches
     Task<BatchResult<ReplaceMemberResult>> EditReplaceMemberManyAsync(IReadOnlyList<EditReplaceMemberItem> items, CancellationToken cancellationToken = default);
@@ -243,7 +243,7 @@ public interface IVsmcpRpc
     Task<BatchResult<AddMemberResult>> CodeOverrideMemberManyAsync(IReadOnlyList<CodeOverrideMemberItem> items, CancellationToken cancellationToken = default);
     Task<BatchResult<AddMemberResult>> CodeGenerateConstructorManyAsync(IReadOnlyList<CodeGenerateCtorItem> items, CancellationToken cancellationToken = default);
     Task<BatchResult<AddMemberResult>> CodeGenerateEqualityManyAsync(IReadOnlyList<CodeGenerateEqualityItem> items, CancellationToken cancellationToken = default);
-    Task<BatchResult<QuickInfoResult>> CodeQuickInfoManyAsync(IReadOnlyList<CodePositionItem> items, CancellationToken cancellationToken = default);
+    Task<BatchResult<QuickInfoResult>> CodeQuickInfoManyAsync(IReadOnlyList<CodePosition> items, CancellationToken cancellationToken = default);
 
     // File batches (file.classes_many intentionally omitted: file.classes is project-wide,
     // not per-file, so a list-of-files shape is meaningless.)

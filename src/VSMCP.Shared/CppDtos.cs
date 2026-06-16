@@ -339,11 +339,10 @@ public sealed class CppIndexEntry
     public int Line { get; set; }
 }
 
-public sealed class CppIndexResult
+public sealed class CppIndexResult : ResultBase
 {
     public List<CppIndexEntry> Entries { get; set; } = new();
     public int TotalIndexed { get; set; }
-    public bool Truncated { get; set; }
 }
 
 public sealed class CppIndexStatsResult
