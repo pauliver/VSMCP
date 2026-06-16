@@ -328,3 +328,26 @@ public sealed class CppCompileFlagsResult
     public List<string> Defines { get; set; } = new();
     public string? Std { get; set; }
 }
+
+/// <summary>#141: one entry in the solution-wide C++ symbol index.</summary>
+public sealed class CppIndexEntry
+{
+    public string File { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Kind { get; set; } = "";
+    public string? Container { get; set; }
+    public int Line { get; set; }
+}
+
+public sealed class CppIndexResult
+{
+    public List<CppIndexEntry> Entries { get; set; } = new();
+    public int TotalIndexed { get; set; }
+    public bool Truncated { get; set; }
+}
+
+public sealed class CppIndexStatsResult
+{
+    public int Files { get; set; }
+    public int Symbols { get; set; }
+}

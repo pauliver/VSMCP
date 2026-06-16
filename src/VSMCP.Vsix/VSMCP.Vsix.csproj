@@ -129,6 +129,7 @@
     <Compile Include="RpcTarget.WorkspaceSidecar.cs" />
     <Compile Include="RpcTarget.CppOutline.cs" />
     <Compile Include="RpcTarget.CppSearch.cs" />
+    <Compile Include="RpcTarget.CppIndex.cs" />
     <Compile Include="CppAnalyzerHost.cs" />
     <Compile Include="JobObjectKillOnClose.cs" />
     <Compile Include="VsmcpLog.cs" />

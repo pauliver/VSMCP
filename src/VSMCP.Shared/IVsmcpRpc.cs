@@ -69,6 +69,8 @@ public interface IVsmcpRpc
     Task<CppMoveTypeResult> CppMoveTypeAsync(string sourceFile, string typeName, string targetFile, bool createTargetIfMissing, CancellationToken cancellationToken = default);
     Task<CppMoveMethodResult> CppMoveMethodAsync(string sourceFile, string className, string methodName, string targetFile, bool createTargetIfMissing, CancellationToken cancellationToken = default);
     Task<CppAnalyzerStatusResult> CppAnalyzerStatusAsync(int recentLogLines, CancellationToken cancellationToken = default);
+    Task<CppIndexResult> CppIndexFindAsync(string name, string? kind, int maxResults, CancellationToken cancellationToken = default);
+    Task<CppIndexStatsResult> CppIndexRebuildAsync(CancellationToken cancellationToken = default);
 
     Task<ProjectLoadResult> ProjectLoadAsync(string csprojPath, CancellationToken cancellationToken = default);
     Task<ProjectLoadFolderResult> ProjectLoadWorkspaceFolderAsync(string? rootPath, CancellationToken cancellationToken = default);
