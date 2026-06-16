@@ -73,6 +73,7 @@
     <Compile Include="RpcTarget.Files.cs" />
     <Compile Include="RpcTarget.Build.cs" />
     <Compile Include="RpcTarget.Debug.cs" />
+    <Compile Include="LaunchSettingsMerger.cs" />
     <Compile Include="RpcTarget.Breakpoints.cs" />
     <Compile Include="RpcTarget.Inspection.cs" />
     <Compile Include="RpcTarget.Modules.cs" />
@@ -153,6 +154,7 @@
     <PackageReference Include="Microsoft.VisualStudio.SDK" Version="17.9.37000" ExcludeAssets="runtime" />
     <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="17.9.3365" IncludeAssets="runtime; build; native; contentfiles; analyzers; buildtransitive" PrivateAssets="all" />
     <PackageReference Include="StreamJsonRpc" Version="2.19.27" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" ExcludeAssets="runtime" PrivateAssets="all" />
     <PackageReference Include="Microsoft.VisualStudio.LanguageServices" Version="4.9.2" ExcludeAssets="runtime" PrivateAssets="all" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.9.2" ExcludeAssets="runtime" PrivateAssets="all" />
     <PackageReference Include="Microsoft.CodeAnalysis.Features" Version="4.9.2" ExcludeAssets="runtime" PrivateAssets="all" />
