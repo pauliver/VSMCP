@@ -62,7 +62,7 @@ internal sealed partial class RpcTarget
     {
         string[] lines;
         try { lines = File.ReadAllLines(path); }
-        catch { return null; }
+        catch (System.Exception ex) { VsmcpLog.Debug("cpp.header", $"read failed: {path}", ex); return null; }
         for (int i = 0; i < lines.Length; i++)
         {
             if (!rx.IsMatch(lines[i])) continue;
