@@ -9,6 +9,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.FindSymbols;
 using Microsoft.VisualStudio.Shell;
+using VSMCP.Core;
 using VSMCP.Shared;
 
 namespace VSMCP.Vsix;
@@ -286,49 +287,15 @@ internal sealed partial class RpcTarget
     }
 
     /// <summary>
-    /// Glob to regex with proper segment semantics: `*` within a segment, `**` across segments,
-    /// `?` single non-separator char, `{a,b}` alternation. Case-insensitive.
+    /// File-glob match against the full path OR the bare file name, so a bare pattern like "*.cs"
+    /// or "Foo.cs" (no "**/") matches files in subdirectories. Delegates to the testable
+    /// <see cref="VSMCP.Core.GlobMatcher"/> (previously matched the full path only, so file.list /
+    /// search.text returned nothing for bare patterns).
     /// </summary>
-    internal static bool MatchesGlob(string path, string pattern) => GlobToRegex(pattern).IsMatch(path);
+    internal static bool MatchesGlob(string path, string pattern) => GlobMatcher.MatchesPathOrName(path, pattern);
 
-    internal static Regex GlobToRegex(string pattern)
-    {
-        var sb = new System.Text.StringBuilder("^");
-        int i = 0;
-        while (i < pattern.Length)
-        {
-            char c = pattern[i];
-            if (c == '*')
-            {
-                if (i + 1 < pattern.Length && pattern[i + 1] == '*')
-                {
-                    sb.Append(".*");
-                    i += 2;
-                    if (i < pattern.Length && (pattern[i] == '/' || pattern[i] == '\\')) i++;
-                }
-                else { sb.Append(@"[^/\\]*"); i++; }
-            }
-            else if (c == '?') { sb.Append(@"[^/\\]"); i++; }
-            else if (c == '{')
-            {
-                int end = pattern.IndexOf('}', i);
-                if (end < 0) { sb.Append(Regex.Escape("{")); i++; continue; }
-                var alts = pattern.Substring(i + 1, end - i - 1).Split(',');
-                sb.Append('(');
-                for (int a = 0; a < alts.Length; a++)
-                {
-                    if (a > 0) sb.Append('|');
-                    sb.Append(Regex.Escape(alts[a]));
-                }
-                sb.Append(')');
-                i = end + 1;
-            }
-            else if (c == '/' || c == '\\') { sb.Append(@"[/\\]"); i++; }
-            else { sb.Append(Regex.Escape(c.ToString())); i++; }
-        }
-        sb.Append('$');
-        return new Regex(sb.ToString(), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-    }
+    /// <summary>Glob -> anchored regex (segment-aware). Used for name matching in search.* / cpp_search.*.</summary>
+    internal static Regex GlobToRegex(string pattern) => GlobMatcher.ToRegex(pattern);
 
     public async Task<FileListResult> FileGlobAsync(
         IReadOnlyList<string> patterns, string? projectId,
