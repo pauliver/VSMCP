@@ -50,6 +50,26 @@ public class FaultTranslatingRpc : DispatchProxy
         catch (Exception ex) { throw ToMcp(ex); }
     }
 
+    /// <summary>
+    /// Run a server-LOCAL tool body — one that bypasses the IVsmcpRpc proxy (profiler/trace/
+    /// counters hosts, dbgeng, compile_commands reader), so the <see cref="Wrap"/> path never
+    /// sees its faults — and translate any exception to <see cref="McpException"/>, matching the
+    /// cross-pipe behavior. Without this the MCP SDK sanitizes the throw to the generic
+    /// "An error occurred invoking 'X'." (#145 follow-up).
+    /// </summary>
+    public static Task<T> Local<T>(Func<T> body)
+    {
+        try { return Task.FromResult(body()); }
+        catch (Exception ex) { return Task.FromException<T>(ToMcp(ex)); }
+    }
+
+    /// <summary>Async counterpart of <see cref="Local{T}"/> for local bodies that return a Task.</summary>
+    public static async Task<T> LocalAsync<T>(Func<Task<T>> body)
+    {
+        try { return await body().ConfigureAwait(false); }
+        catch (Exception ex) { throw ToMcp(ex); }
+    }
+
     private static readonly MethodInfo WrapResultMethod =
         typeof(FaultTranslatingRpc).GetMethod(nameof(WrapResult), BindingFlags.Public | BindingFlags.Static)!;
 

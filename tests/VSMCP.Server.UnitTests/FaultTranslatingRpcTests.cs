@@ -96,6 +96,42 @@ public class FaultTranslatingRpcTests
         Assert.Equal("VSMCP-not-debugging: no session", ex.Message);
     }
 
+    // ---- Local()/LocalAsync(): server-local (non-proxy) tool bodies translate too (#145 follow-up). ----
+
+    [Fact]
+    public async Task Local_SuccessfulBody_ReturnsValue()
+        => Assert.Equal(42, await FaultTranslatingRpc.Local(() => 42));
+
+    [Fact]
+    public async Task Local_ThrowingBody_SurfacesMcpException()
+    {
+        var ex = await Assert.ThrowsAsync<McpException>(
+            () => FaultTranslatingRpc.Local<int>(() => throw new VsmcpException(ErrorCodes.NotFound, "missing")));
+        Assert.Equal("VSMCP-not-found: missing", ex.Message);
+    }
+
+    [Fact]
+    public async Task LocalAsync_SuccessfulBody_ReturnsValue()
+        => Assert.Equal(7, await FaultTranslatingRpc.LocalAsync(() => Task.FromResult(7)));
+
+    [Fact]
+    public async Task LocalAsync_SynchronousThrowInBody_SurfacesMcpException()
+    {
+        // The gate-style throw (e.g. dump.dbgeng disabled) happens before any Task is returned.
+        var ex = await Assert.ThrowsAsync<McpException>(
+            () => FaultTranslatingRpc.LocalAsync<int>(() => throw new VsmcpException(ErrorCodes.Unsupported, "disabled")));
+        Assert.Equal("VSMCP-unsupported: disabled", ex.Message);
+    }
+
+    [Fact]
+    public async Task LocalAsync_FaultedTaskFromBody_SurfacesMcpException()
+    {
+        var ex = await Assert.ThrowsAsync<McpException>(
+            () => FaultTranslatingRpc.LocalAsync(() => Task.FromException<int>(
+                new VsmcpException(ErrorCodes.WrongState, "bad state"))));
+        Assert.Equal("VSMCP-wrong-state: bad state", ex.Message);
+    }
+
     private static IVsmcpRpc MakeStub(Func<MethodInfo, object?> onInvoke)
     {
         var proxy = DispatchProxy.Create<IVsmcpRpc, StubRpc>();

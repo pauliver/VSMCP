@@ -514,7 +514,7 @@ public sealed partial class VsmcpTools
         [Description("Sampling interval in milliseconds (100..60000). Default 500ms.")] int sampleMs = 500,
         CancellationToken ct = default)
     {
-        return Task.FromResult(_counters.Subscribe(pid, sampleMs));
+        return FaultTranslatingRpc.Local(() => _counters.Subscribe(pid, sampleMs));
     }
 
     [McpServerTool(Name = "counters.read")]
@@ -524,7 +524,7 @@ public sealed partial class VsmcpTools
         [Description("Max samples to return (1..256). Default 256.")] int maxSamples = 256,
         CancellationToken ct = default)
     {
-        return Task.FromResult(_counters.Read(subscriptionId, maxSamples));
+        return FaultTranslatingRpc.Local(() => _counters.Read(subscriptionId, maxSamples));
     }
 
     [McpServerTool(Name = "counters.unsubscribe")]
@@ -533,7 +533,7 @@ public sealed partial class VsmcpTools
         [Description("Subscription id from counters.subscribe.")] string subscriptionId,
         CancellationToken ct = default)
     {
-        return Task.FromResult(_counters.Unsubscribe(subscriptionId));
+        return FaultTranslatingRpc.Local(() => _counters.Unsubscribe(subscriptionId));
     }
 
     // -------- ETW tracing (M8) --------
@@ -544,7 +544,7 @@ public sealed partial class VsmcpTools
         [Description("Start options. Providers + optional kernel keywords + optional output path.")] TraceStartOptions options,
         CancellationToken ct = default)
     {
-        return Task.FromResult(_trace.Start(options));
+        return FaultTranslatingRpc.Local(() => _trace.Start(options));
     }
 
     [McpServerTool(Name = "trace.stop")]
@@ -553,7 +553,7 @@ public sealed partial class VsmcpTools
         [Description("Session id from trace.start.")] string sessionId,
         CancellationToken ct = default)
     {
-        return Task.FromResult(_trace.Stop(sessionId));
+        return FaultTranslatingRpc.Local(() => _trace.Stop(sessionId));
     }
 
     [McpServerTool(Name = "trace.report")]
@@ -563,7 +563,7 @@ public sealed partial class VsmcpTools
         [Description("Max (provider, event) pairs to return (1..1000, default 20).")] int top = 20,
         CancellationToken ct = default)
     {
-        return Task.FromResult(_trace.Report(path, top));
+        return FaultTranslatingRpc.Local(() => _trace.Report(path, top));
     }
 
     // -------- Diagnostic Tools (M11) --------

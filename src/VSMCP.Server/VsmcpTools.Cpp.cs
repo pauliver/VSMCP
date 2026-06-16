@@ -16,9 +16,8 @@ public sealed partial class VsmcpTools
         [Description("Absolute path to the source file whose flags you want.")] string file,
         CancellationToken ct = default)
     {
-        // Server-local tool (no proxy), so translate faults to McpException here directly (#145).
-        try { return Task.FromResult(CompileCommandsReader.Read(compileCommandsPath, file)); }
-        catch (System.Exception ex) { throw FaultTranslatingRpc.ToMcp(ex); }
+        // Server-local tool (no proxy) — translate faults to McpException via the local helper (#145).
+        return FaultTranslatingRpc.Local(() => CompileCommandsReader.Read(compileCommandsPath, file));
     }
 
     [McpServerTool(Name = "cpp.header_lookup")]

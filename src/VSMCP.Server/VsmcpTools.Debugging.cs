@@ -434,25 +434,26 @@ public sealed partial class VsmcpTools
 
     [McpServerTool(Name = "dump.dbgeng")]
     [Description("Run a DbgEng command (e.g. '!analyze -v', 'k', 'lm', '~*k') against a dump file by invoking cdb.exe with -z. Returns the captured output. Gated: requires allowDbgEng=true in %LOCALAPPDATA%\\VSMCP\\config.json. cdb.exe is auto-discovered under the Windows Kits install; override via cdbPath.")]
-    public async Task<DumpDbgEngResult> DumpDbgEng(
+    public Task<DumpDbgEngResult> DumpDbgEng(
         [Description("Absolute path to the dump file.")] string dumpPath,
         [Description("DbgEng command to run (semicolon-separated is OK; do not append 'q' — the wrapper does that).")] string command,
         [Description("Optional extra symbol search path (semicolon-separated); overrides _NT_SYMBOL_PATH for this call.")] string? symbolPath = null,
         [Description("Timeout in milliseconds (5000..600000, default 120000).")] int? timeoutMs = null,
         [Description("Override path to cdb.exe. Default: auto-discover under Windows Kits.")] string? cdbPath = null,
         CancellationToken ct = default)
-    {
-        if (!_config.AllowDbgEng)
-            throw new InvalidOperationException("dump.dbgeng is disabled. Set \"allowDbgEng\": true in %LOCALAPPDATA%\\VSMCP\\config.json to enable.");
-        return await DbgEngInvoker.RunAsync(new DumpDbgEngOptions
+        => FaultTranslatingRpc.LocalAsync(() =>
         {
-            DumpPath = dumpPath,
-            Command = command,
-            SymbolPath = symbolPath,
-            TimeoutMs = timeoutMs,
-            CdbPath = cdbPath,
-        }, ct).ConfigureAwait(false);
-    }
+            if (!_config.AllowDbgEng)
+                throw new VsmcpException(ErrorCodes.Unsupported, "dump.dbgeng is disabled. Set \"allowDbgEng\": true in %LOCALAPPDATA%\\VSMCP\\config.json to enable.");
+            return DbgEngInvoker.RunAsync(new DumpDbgEngOptions
+            {
+                DumpPath = dumpPath,
+                Command = command,
+                SymbolPath = symbolPath,
+                TimeoutMs = timeoutMs,
+                CdbPath = cdbPath,
+            }, ct);
+        });
 
     [McpServerTool(Name = "dump.save")]
     [Description("Capture a memory dump of a running process (not necessarily the debuggee) using dbghelp!MiniDumpWriteDump. Writes to the given path; parent directory must exist and Visual Studio must have rights to read the target process.")]
@@ -496,17 +497,15 @@ public sealed partial class VsmcpTools
         [Description("Optional absolute output path for the .nettrace. Default: %TEMP%\\vsmcp-<ts>-<pid>-<mode>.nettrace.")] string? outputPath = null,
         CancellationToken ct = default)
     {
-        return Task.FromResult(_profiler.Start(pid, mode, outputPath));
+        return FaultTranslatingRpc.Local(() => _profiler.Start(pid, mode, outputPath));
     }
 
     [McpServerTool(Name = "profiler.stop")]
     [Description("Stop a running EventPipe session by id. Flushes the .nettrace to disk and returns the final file size and wall-clock duration.")]
-    public async Task<ProfilerStopResult> ProfilerStop(
+    public Task<ProfilerStopResult> ProfilerStop(
         [Description("Session id from profiler.start.")] string sessionId,
         CancellationToken ct = default)
-    {
-        return await _profiler.StopAsync(sessionId, ct).ConfigureAwait(false);
-    }
+        => FaultTranslatingRpc.LocalAsync(() => _profiler.StopAsync(sessionId, ct));
 
     [McpServerTool(Name = "profiler.report")]
     [Description("Summarize a .nettrace file: total sample count, session duration, and the top N hot functions by self-time (leaf-of-stack) sample count. Uses Microsoft.Diagnostics.Tracing.TraceEvent; symbols come from whatever is on disk or in the trace's JIT rundown.")]
@@ -515,6 +514,6 @@ public sealed partial class VsmcpTools
         [Description("Max number of hot functions to return (1..1000, default 20).")] int top = 20,
         CancellationToken ct = default)
     {
-        return Task.FromResult(_profiler.Report(path, top));
+        return FaultTranslatingRpc.Local(() => _profiler.Report(path, top));
     }
 }
