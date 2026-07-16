@@ -11,7 +11,10 @@ namespace VSMCP.Vsix;
 
 internal sealed partial class RpcTarget
 {
-    private readonly BuildCoordinator _builds = new();
+    // Host-wide (static): build state is VS-global, so it must be shared across connections and
+    // survive a client reconnect — a per-connection coordinator would let two clients race the
+    // solution build and would orphan running jobs on disconnect.
+    private static readonly BuildCoordinator _builds = new();
 
     public Task<BuildHandle> BuildStartAsync(string? configuration, string? platform, IReadOnlyList<string>? projectIds, CancellationToken cancellationToken = default)
         => StartBuildAsync(BuildAction.Build, configuration, platform, projectIds, cancellationToken);
@@ -36,20 +39,32 @@ internal sealed partial class RpcTarget
         var sb = solution.SolutionBuild
             ?? throw new VsmcpException(ErrorCodes.InteropFault, "SolutionBuild unavailable.");
 
-        // Per-project clean was destructive: it built the project, then cleaned the ENTIRE solution,
-        // discarding every project's outputs. VS/DTE has no safe scoped-clean primitive here, so refuse
-        // it rather than do the data-losing wrong thing. Solution-wide clean (no projectIds) is fine.
-        if (action == BuildAction.Clean && projectIds is { Count: > 0 })
+        var bm = await _package.GetServiceAsync(typeof(SVsSolutionBuildManager)) as IVsSolutionBuildManager2
+            ?? throw new VsmcpException(ErrorCodes.InteropFault, "IVsSolutionBuildManager2 unavailable.");
+
+        // One build at a time, host-wide. Overlapping solution builds corrupt each other's state,
+        // so reject with a typed busy error instead of interleaving. A tracked job whose build VS
+        // is no longer running missed its Done event (or never started) — close it out as stale
+        // rather than bricking build.start forever.
+        int vsBusy = 0;
+        try { bm.QueryBuildManagerBusy(out vsBusy); } catch { }
+        if (_builds.TryGetActive(out var active))
+        {
+            if (vsBusy != 0)
+                throw new VsmcpException(ErrorCodes.WrongState,
+                    $"A build is already in progress (buildId {active.Handle.BuildId}, state {active.State}). Use build.wait or build.cancel first.");
+            UnadviseAndComplete(active, BuildState.Failed);
+        }
+        else if (vsBusy != 0)
+        {
             throw new VsmcpException(ErrorCodes.WrongState,
-                "Per-project clean is not supported. Call build.clean without projectIds to clean the whole solution, or build.rebuild for a single project.");
+                "Visual Studio is already running a build (started outside VSMCP). Wait for it to finish.");
+        }
 
         if (!string.IsNullOrWhiteSpace(configuration))
             ActivateConfiguration(sb, configuration!, platform);
 
         var job = _builds.Register(action, configuration, platform, projectIds);
-
-        var bm = await _package.GetServiceAsync(typeof(SVsSolutionBuildManager)) as IVsSolutionBuildManager2
-            ?? throw new VsmcpException(ErrorCodes.InteropFault, "IVsSolutionBuildManager2 unavailable.");
 
         job.BuildManager = bm;
         job.OnDone = j => MaybeFinalize(j);
@@ -62,23 +77,29 @@ internal sealed partial class RpcTarget
         {
             if (projectIds is { Count: > 0 })
             {
-                var cfgName = configuration ?? TryGetActiveConfigName(sb) ?? "Debug";
-                foreach (var id in projectIds)
+                if (action == BuildAction.Clean)
                 {
-                    var project = VsHelpers.RequireProject(solution, id);
-                    var unique = project.UniqueName;
-                    switch (action)
+                    // Scoped clean via the build manager — DTE has no per-project clean, and the old
+                    // fallback (solution-wide sb.Clean) silently discarded every project's outputs.
+                    StartScopedClean(bm, solution, projectIds);
+                }
+                else
+                {
+                    var cfgName = configuration ?? TryGetActiveConfigName(sb) ?? "Debug";
+                    foreach (var id in projectIds)
                     {
-                        case BuildAction.Clean:
-                            // Unreachable — guarded above. Never clean the whole solution for a scoped request.
-                            throw new VsmcpException(ErrorCodes.WrongState, "Per-project clean is not supported.");
-                        case BuildAction.Rebuild:
-                            sb.Clean(WaitForCleanToFinish: true);
-                            sb.BuildProject(cfgName, unique, WaitForBuildToFinish: false);
-                            break;
-                        default:
-                            sb.BuildProject(cfgName, unique, WaitForBuildToFinish: false);
-                            break;
+                        var project = VsHelpers.RequireProject(solution, id);
+                        var unique = project.UniqueName;
+                        switch (action)
+                        {
+                            case BuildAction.Rebuild:
+                                sb.Clean(WaitForCleanToFinish: true);
+                                sb.BuildProject(cfgName, unique, WaitForBuildToFinish: false);
+                                break;
+                            default:
+                                sb.BuildProject(cfgName, unique, WaitForBuildToFinish: false);
+                                break;
+                        }
                     }
                 }
             }
@@ -163,6 +184,29 @@ internal sealed partial class RpcTarget
     }
 
     // -------- helpers --------
+
+    /// <summary>Clean ONLY the named projects via IVsSolutionBuildManager2. Completion arrives
+    /// through the same UpdateSolution events as any other build op.</summary>
+    private static void StartScopedClean(IVsSolutionBuildManager2 bm, EnvDTE.Solution solution, IReadOnlyList<string> projectIds)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+
+        var vsSolution = ServiceProvider.GlobalProvider.GetService(typeof(SVsSolution)) as IVsSolution
+            ?? throw new VsmcpException(ErrorCodes.InteropFault, "IVsSolution unavailable.");
+
+        var hiers = new IVsHierarchy[projectIds.Count];
+        for (int i = 0; i < projectIds.Count; i++)
+        {
+            var project = VsHelpers.RequireProject(solution, projectIds[i]);
+            ErrorHandler.ThrowOnFailure(vsSolution.GetProjectOfUniqueName(project.UniqueName, out hiers[i]));
+        }
+
+        ErrorHandler.ThrowOnFailure(bm.StartUpdateSpecificProjectConfigurations(
+            (uint)hiers.Length, hiers, null,
+            rgdwCleanFlags: null, rgdwBuildFlags: null, rgdwDeployFlags: null,
+            dwFlags: (uint)VSSOLNBUILDUPDATEFLAGS.SBF_OPERATION_CLEAN,
+            fSuppressUI: 0));
+    }
 
     private void MaybeFinalize(BuildJob job)
     {

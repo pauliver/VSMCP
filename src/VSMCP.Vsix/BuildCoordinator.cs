@@ -49,6 +49,21 @@ internal sealed class BuildCoordinator
 
     public bool TryGet(string buildId, out BuildJob job) => _builds.TryGetValue(buildId, out job!);
 
+    /// <summary>The job currently Queued/Running, if any — build.start enforces one at a time.</summary>
+    public bool TryGetActive(out BuildJob active)
+    {
+        foreach (var kv in _builds)
+        {
+            if (kv.Value.State is BuildState.Queued or BuildState.Running)
+            {
+                active = kv.Value;
+                return true;
+            }
+        }
+        active = null!;
+        return false;
+    }
+
     public BuildStatus Snapshot(BuildJob job) => new()
     {
         BuildId = job.Handle.BuildId,
@@ -129,12 +144,25 @@ internal sealed class BuildJob : IVsUpdateSolutionEvents2
     /// </summary>
     public Action<BuildJob>? OnDone { get; set; }
 
+    /// <summary>
+    /// Correlation guard: set when a build BEGINS while this job is advised. A build that was
+    /// already running when we advised delivers only its Done — without this flag that stray
+    /// Done would complete this job with another build's outcome.
+    /// </summary>
+    private bool _sawBegin;
+
     // -------- IVsUpdateSolutionEvents2 --------
 
-    public int UpdateSolution_Begin(ref int pfCancelUpdate) => 0;
+    public int UpdateSolution_Begin(ref int pfCancelUpdate)
+    {
+        _sawBegin = true;
+        return 0;
+    }
 
     public int UpdateSolution_Done(int fSucceeded, int fModified, int fCancelCommand)
     {
+        if (!_sawBegin) return 0; // not our build — see _sawBegin
+
         var final = fCancelCommand != 0 ? BuildState.Canceled
                   : fSucceeded != 0 ? BuildState.Succeeded
                   : BuildState.Failed;
@@ -144,7 +172,11 @@ internal sealed class BuildJob : IVsUpdateSolutionEvents2
         return 0;
     }
 
-    public int UpdateSolution_StartUpdate(ref int pfCancelUpdate) => 0;
+    public int UpdateSolution_StartUpdate(ref int pfCancelUpdate)
+    {
+        _sawBegin = true;
+        return 0;
+    }
     public int UpdateSolution_Cancel() => 0;
     public int OnActiveProjectCfgChange(IVsHierarchy pIVsHierarchy) => 0;
     public int UpdateProjectCfg_Begin(IVsHierarchy pHierProj, IVsCfg pCfgProj, IVsCfg pCfgSln, uint dwAction, ref int pfCancel) => 0;

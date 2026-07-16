@@ -36,18 +36,23 @@ internal sealed partial class RpcTarget
                 ApplyLaunchProperties(project, options);
         }
 
-        try
+        await RunWithModalGuardAsync("debug.launch", d =>
         {
-            if (options.NoDebug)
-                sb.Run();
-            else
-                dte.Debugger.Go(WaitForBreakOrEnd: false);
-        }
-        catch (Exception ex)
-        {
-            throw new VsmcpException(ErrorCodes.InteropFault, $"Failed to launch: {ex.Message}", ex);
-        }
+            try
+            {
+                if (options.NoDebug)
+                    sb.Run();
+                else
+                    d.Debugger.Go(WaitForBreakOrEnd: false);
+            }
+            catch (Exception ex)
+            {
+                throw new VsmcpException(ErrorCodes.InteropFault, $"Failed to launch: {ex.Message}", ex);
+            }
+            return Task.CompletedTask;
+        }, cancellationToken).ConfigureAwait(false);
 
+        await _jtf.SwitchToMainThreadAsync(cancellationToken);
         return Result("Debug session started.", options.ProjectId is null ? null : $"startup={options.ProjectId}");
     }
 
@@ -101,19 +106,31 @@ internal sealed partial class RpcTarget
 
     public async Task<DebugActionResult> DebugStopAsync(CancellationToken cancellationToken = default)
     {
+        await RunWithModalGuardAsync("debug.stop", d =>
+        {
+            try { d.Debugger.Stop(WaitForDesignMode: false); } catch (Exception ex) { throw Interop("stop", ex); }
+            return Task.CompletedTask;
+        }, cancellationToken).ConfigureAwait(false);
+
         await _jtf.SwitchToMainThreadAsync(cancellationToken);
         var dte = await RequireDteAsync();
-        try { dte.Debugger.Stop(WaitForDesignMode: false); } catch (Exception ex) { throw Interop("stop", ex); }
         await WaitForDesignModeAsync(dte, cancellationToken).ConfigureAwait(false);
+        await _jtf.SwitchToMainThreadAsync(cancellationToken);
         return Result("Stopped.");
     }
 
     public async Task<DebugActionResult> DebugStopCommandAsync(CancellationToken cancellationToken = default)
     {
+        await RunWithModalGuardAsync("debug.stop_command", d =>
+        {
+            try { d.ExecuteCommand("Debug.StopDebugging"); } catch (Exception ex) { throw Interop("stop_command", ex); }
+            return Task.CompletedTask;
+        }, cancellationToken).ConfigureAwait(false);
+
         await _jtf.SwitchToMainThreadAsync(cancellationToken);
         var dte = await RequireDteAsync();
-        try { dte.ExecuteCommand("Debug.StopDebugging"); } catch (Exception ex) { throw Interop("stop_command", ex); }
         await WaitForDesignModeAsync(dte, cancellationToken).ConfigureAwait(false);
+        await _jtf.SwitchToMainThreadAsync(cancellationToken);
         return Result("Stop command sent.");
     }
 
@@ -138,8 +155,15 @@ internal sealed partial class RpcTarget
         }
         catch { }
 
-        try { dte.Debugger.Stop(WaitForDesignMode: false); } catch { }
+        await RunWithModalGuardAsync("debug.kill_and_stop", d =>
+        {
+            try { d.Debugger.Stop(WaitForDesignMode: false); } catch { }
+            return Task.CompletedTask;
+        }, cancellationToken).ConfigureAwait(false);
+
+        await _jtf.SwitchToMainThreadAsync(cancellationToken);
         await WaitForDesignModeAsync(dte, cancellationToken).ConfigureAwait(false);
+        await _jtf.SwitchToMainThreadAsync(cancellationToken);
 
         var note = killed.Count > 0 ? $"Killed: {string.Join(", ", killed)}." : "No processes to kill.";
         return Result("Stopped.", note);
@@ -174,16 +198,20 @@ internal sealed partial class RpcTarget
 
     public async Task<DebugActionResult> DebugRestartAsync(CancellationToken cancellationToken = default)
     {
-        await _jtf.SwitchToMainThreadAsync(cancellationToken);
-        var dte = await RequireDteAsync();
-        try
+        await RunWithModalGuardAsync("debug.restart", d =>
         {
-            if (dte.Debugger is EnvDTE80.Debugger2 dbg2)
-                dte.ExecuteCommand("Debug.Restart");
-            else
-                dte.Debugger.Stop(WaitForDesignMode: true);
-        }
-        catch (Exception ex) { throw Interop("restart", ex); }
+            try
+            {
+                if (d.Debugger is EnvDTE80.Debugger2)
+                    d.ExecuteCommand("Debug.Restart");
+                else
+                    d.Debugger.Stop(WaitForDesignMode: true);
+            }
+            catch (Exception ex) { throw Interop("restart", ex); }
+            return Task.CompletedTask;
+        }, cancellationToken).ConfigureAwait(false);
+
+        await _jtf.SwitchToMainThreadAsync(cancellationToken);
         return Result("Restart requested.");
     }
 
@@ -236,8 +264,14 @@ internal sealed partial class RpcTarget
         if (!File.Exists(file)) throw new VsmcpException(ErrorCodes.NotFound, $"File not found: {file}");
 
         MoveCaret(dte, file, line, 1);
-        try { dte.ExecuteCommand("Debug.RunToCursor"); }
-        catch (Exception ex) { throw Interop("run to cursor", ex); }
+        await RunWithModalGuardAsync("debug.run_to_cursor", d =>
+        {
+            try { d.ExecuteCommand("Debug.RunToCursor"); }
+            catch (Exception ex) { throw Interop("run to cursor", ex); }
+            return Task.CompletedTask;
+        }, cancellationToken).ConfigureAwait(false);
+
+        await _jtf.SwitchToMainThreadAsync(cancellationToken);
         return Result("Run to cursor.", $"{file}:{line}");
     }
 
@@ -256,8 +290,14 @@ internal sealed partial class RpcTarget
             throw new VsmcpException(ErrorCodes.WrongState, "Debugger must be in Break mode to set next statement.");
 
         MoveCaret(dte, file, line, 1);
-        try { dte.ExecuteCommand("Debug.SetNextStatement"); }
-        catch (Exception ex) { throw Interop("set next statement", ex); }
+        await RunWithModalGuardAsync("debug.set_next_statement", d =>
+        {
+            try { d.ExecuteCommand("Debug.SetNextStatement"); }
+            catch (Exception ex) { throw Interop("set next statement", ex); }
+            return Task.CompletedTask;
+        }, cancellationToken).ConfigureAwait(false);
+
+        await _jtf.SwitchToMainThreadAsync(cancellationToken);
         return Result("Set next statement.", $"{file}:{line}");
     }
 

@@ -87,6 +87,7 @@
     <Compile Include="FollowMode.cs" />
     <Compile Include="RpcTarget.FileMove.cs" />
     <Compile Include="RpcTarget.EditRefactor.cs" />
+    <Compile Include="RpcTarget.ModalGuard.cs" />
     <Compile Include="HostActivity.cs" />
     <Compile Include="StatusBarReporter.cs" />
     <Compile Include="VsmcpToolWindow.cs" />

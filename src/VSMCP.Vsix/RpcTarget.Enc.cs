@@ -79,7 +79,9 @@ internal sealed partial class RpcTarget
 
         try
         {
-            dte.ExecuteCommand("Debug.ApplyCodeChanges");
+            await RunWithModalGuardAsync("debug.apply_code_changes",
+                d => { d.ExecuteCommand("Debug.ApplyCodeChanges"); return Task.CompletedTask; },
+                cancellationToken).ConfigureAwait(false);
             return new EncApplyResult
             {
                 Success = true,
@@ -87,6 +89,10 @@ internal sealed partial class RpcTarget
                     ? "Apply requested. Continue execution to see the new code take effect."
                     : "Apply requested while running (Hot Reload path).",
             };
+        }
+        catch (VsmcpException)
+        {
+            throw; // typed errors (e.g. modal-wedge WrongState) go to the client as-is
         }
         catch (Exception ex)
         {
@@ -112,15 +118,27 @@ internal sealed partial class RpcTarget
         // Try the Hot Reload-specific command first, fall back.
         try
         {
-            dte.ExecuteCommand("Debug.HotReloadApplyCodeChanges");
+            await RunWithModalGuardAsync("debug.hot_reload",
+                d => { d.ExecuteCommand("Debug.HotReloadApplyCodeChanges"); return Task.CompletedTask; },
+                cancellationToken).ConfigureAwait(false);
             return new EncApplyResult { Success = true, Message = "Hot Reload applied." };
+        }
+        catch (VsmcpException)
+        {
+            throw; // typed errors (e.g. modal-wedge WrongState) go to the client as-is
         }
         catch
         {
             try
             {
-                dte.ExecuteCommand("Debug.ApplyCodeChanges");
+                await RunWithModalGuardAsync("debug.hot_reload",
+                    d => { d.ExecuteCommand("Debug.ApplyCodeChanges"); return Task.CompletedTask; },
+                    cancellationToken).ConfigureAwait(false);
                 return new EncApplyResult { Success = true, Message = "Hot Reload command not available; fell back to Debug.ApplyCodeChanges." };
+            }
+            catch (VsmcpException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
