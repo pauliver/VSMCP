@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Text;
 using VSMCP.Core;
 using VSMCP.Shared;
 
@@ -45,7 +46,9 @@ internal sealed partial class RpcTarget
         MemberDeclarationSyntax? memberDecl = container.Members.FirstOrDefault(m => MemberName(m) == methodName);
         if (memberDecl is null) return new MoveTypeResult { Success = false };
 
-        bool destExists = File.Exists(newFile!);
+        var targetPath = Path.GetFullPath(newFile!);
+        await EnsureWriteAllowedAsync(targetPath, "edit.move_method", cancellationToken).ConfigureAwait(false);
+        bool destExists = File.Exists(targetPath);
         if (destExists && !appendIfExists)
             return new MoveTypeResult { Success = false, Conflict = true };
 
@@ -55,10 +58,17 @@ internal sealed partial class RpcTarget
 
         await _jtf.SwitchToMainThreadAsync(cancellationToken);
 
+        // If the destination is already a workspace document, its (possibly unsaved) buffer text
+        // is the truth; a raw disk read would clobber open edits on apply.
+        var destDoc = destExists ? FindDocument(ws.CurrentSolution, targetPath) : null;
+
         // Build the destination side.
+        SyntaxNode destRoot;
         if (destExists)
         {
-            var existingText = File.ReadAllText(newFile!);
+            var existingText = destDoc is not null
+                ? (await destDoc.GetTextAsync(cancellationToken).ConfigureAwait(false)).ToString()
+                : (await FileReadAsync(targetPath, null, cancellationToken).ConfigureAwait(false)).Content;
             var existingTree = CSharpSyntaxTree.ParseText(existingText, cancellationToken: cancellationToken);
             var existingRoot = await existingTree.GetRootAsync(cancellationToken).ConfigureAwait(false) as CompilationUnitSyntax
                                ?? throw new VsmcpException(ErrorCodes.InteropFault, $"Could not parse '{newFile}' as a C# compilation unit.");
@@ -80,7 +90,7 @@ internal sealed partial class RpcTarget
                 updatedRoot = AddMemberToNamespaceOrRoot(existingRoot, nsName, newPartial);
             }
 
-            File.WriteAllText(newFile!, updatedRoot.ToFullString());
+            destRoot = updatedRoot;
         }
         else
         {
@@ -102,17 +112,38 @@ internal sealed partial class RpcTarget
                     .WithMembers(SyntaxFactory.SingletonList<MemberDeclarationSyntax>(newContainer));
             }
             // NormalizeWhitespace on a freshly-built tree gives reasonable formatting.
-            File.WriteAllText(newFile!, newRoot.NormalizeWhitespace().ToFullString());
+            destRoot = newRoot.NormalizeWhitespace();
         }
 
-        // Remove the member from the source's container and apply through the workspace.
+        // Remove the member from the source's container and apply source + destination as ONE
+        // workspace transaction where possible — a new file also gets registered with the project.
         var newSourceRoot = root.RemoveNode(memberDecl, SyntaxRemoveOptions.KeepLeadingTrivia)!;
-        RoslynEditor.ApplyDocumentChange(ws, doc, newSourceRoot);
+        var newSolution = ws.CurrentSolution.WithDocumentSyntaxRoot(doc.Id, newSourceRoot);
+
+        if (destDoc is not null)
+        {
+            newSolution = newSolution.WithDocumentSyntaxRoot(destDoc.Id, destRoot);
+            RoslynEditor.Apply(ws, newSolution);
+        }
+        else if (destExists)
+        {
+            // On disk but not in the workspace (loose file): write it buffer-aware first so a
+            // failure leaves at worst a duplicate, never a lost member.
+            await FileWriteAsync(targetPath, destRoot.ToFullString(), cancellationToken).ConfigureAwait(false);
+            RoslynEditor.Apply(ws, newSolution);
+        }
+        else
+        {
+            var newDocId = DocumentId.CreateNewId(doc.Project.Id);
+            newSolution = newSolution.AddDocument(newDocId, Path.GetFileName(targetPath),
+                SourceText.From(destRoot.ToFullString()), filePath: targetPath);
+            RoslynEditor.Apply(ws, newSolution);
+        }
 
         return new MoveTypeResult
         {
             Success = true,
-            NewLocation = new CodeSpan { File = newFile!, StartLine = 1, StartColumn = 1, EndLine = 1, EndColumn = 1 },
+            NewLocation = new CodeSpan { File = targetPath, StartLine = 1, StartColumn = 1, EndLine = 1, EndColumn = 1 },
             Conflict = false,
         };
     }

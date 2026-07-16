@@ -19,8 +19,9 @@ internal sealed partial class RpcTarget
     /// Bulk rename/move files on disk and (when <paramref name="updateProject"/> is true) update
     /// any owning .csproj's <c>&lt;Compile Include&gt;</c> entry. Fail-fast: if any pair is
     /// rejected during validation, NO disk changes are made (validation runs before mutation).
-    /// On per-pair mutation failure after the disk move, the move and any csproj edit are rolled
-    /// back for that pair before the exception propagates.
+    /// On per-pair mutation failure after the disk move, that pair's move and csproj edit are
+    /// rolled back and the failure is reported in the outcome's <c>Error</c> — pairs already
+    /// completed keep their results and later pairs still run (partial result, not all-or-nothing).
     /// </summary>
     public async Task<FileMoveManyResult> FileMoveManyAsync(
         IReadOnlyList<FileMovePair> moves,
@@ -41,6 +42,17 @@ internal sealed partial class RpcTarget
         {
             cancellationToken.ThrowIfCancellationRequested();
             plan.Add(ValidatePair(m, updateProject));
+        }
+
+        // Every path this batch will touch must be inside the allowed write roots — including
+        // destinations and any .csproj that gets edited. Still part of fail-fast validation.
+        foreach (var p in plan)
+        {
+            if (p.Skipped is not null) continue;
+            await EnsureWriteAllowedAsync(p.FromAbs, "file.move_many", cancellationToken).ConfigureAwait(false);
+            await EnsureWriteAllowedAsync(p.ToAbs, "file.move_many", cancellationToken).ConfigureAwait(false);
+            if (p.WillEditProject && p.ProjectPath is not null)
+                await EnsureWriteAllowedAsync(p.ProjectPath, "file.move_many", cancellationToken).ConfigureAwait(false);
         }
 
         // ---- Pass 2: execute. In dry-run, just record the plan as outcomes. ----
@@ -111,18 +123,20 @@ internal sealed partial class RpcTarget
 
                 result.Outcomes.Add(outcome);
             }
-            catch
+            catch (Exception ex) when (!(ex is OperationCanceledException))
             {
-                // Rollback this pair's mutations and re-throw.
+                // Rollback this pair's mutations, record the failure, and keep going —
+                // outcomes from pairs that already completed must survive.
                 if (outcome.Moved && File.Exists(p.ToAbs) && !File.Exists(p.FromAbs))
                 {
-                    try { File.Move(p.ToAbs, p.FromAbs); } catch { }
+                    try { File.Move(p.ToAbs, p.FromAbs); outcome.Moved = false; } catch { }
                 }
                 if (savedCsprojBytes is not null && p.ProjectPath is not null)
                 {
-                    try { File.WriteAllBytes(p.ProjectPath, savedCsprojBytes); } catch { }
+                    try { File.WriteAllBytes(p.ProjectPath, savedCsprojBytes); outcome.ProjectUpdated = false; } catch { }
                 }
-                throw;
+                outcome.Error = ex.Message;
+                result.Outcomes.Add(outcome);
             }
         }
 

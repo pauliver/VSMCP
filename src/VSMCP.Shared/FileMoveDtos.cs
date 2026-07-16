@@ -28,6 +28,9 @@ public sealed class FileMoveOutcome
 
     /// <summary>Set when this pair was skipped or rejected. Null on success.</summary>
     public string? Skipped { get; set; }
+
+    /// <summary>Set when this pair's mutation failed (and was rolled back). Null on success.</summary>
+    public string? Error { get; set; }
 }
 
 public sealed class FileMoveManyResult
@@ -39,4 +42,5 @@ public sealed class FileMoveManyResult
     public int MovedCount => Outcomes.Count(o => o.Moved);
     public int CsprojEdits => Outcomes.Count(o => o.ProjectUpdated);
     public int SkippedCount => Outcomes.Count(o => o.Skipped is not null);
+    public int ErrorCount => Outcomes.Count(o => o.Error is not null);
 }
