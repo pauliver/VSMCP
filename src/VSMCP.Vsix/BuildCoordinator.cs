@@ -84,8 +84,17 @@ internal sealed class BuildCoordinator
 
         if (timeoutMs is null)
         {
-            using var reg = ct.Register(() => job.Completion.TrySetCanceled(ct));
-            return await job.Completion.Task.ConfigureAwait(false);
+            // Wait WITHOUT ever cancelling the job's shared Completion source. Cancelling a build.wait
+            // must abort only this caller's wait — cancelling job.Completion would make MaybeFinalize
+            // early-return on IsCompleted, so the build-events advise leaks and the still-advised job
+            // overwrites its state on every future build (build.status then reports an unrelated build).
+            var ctTask = Task.Delay(Timeout.Infinite, ct);
+            var firstDone = await Task.WhenAny(job.Completion.Task, ctTask).ConfigureAwait(false);
+            if (firstDone == job.Completion.Task)
+                return await job.Completion.Task.ConfigureAwait(false);
+
+            ct.ThrowIfCancellationRequested(); // ctTask won => cancellation requested
+            return await job.Completion.Task.ConfigureAwait(false); // unreachable
         }
 
         var delay = Task.Delay(timeoutMs.Value, ct);

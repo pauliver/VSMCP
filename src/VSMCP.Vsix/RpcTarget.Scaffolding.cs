@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.VisualStudio.Shell;
+using VSMCP.Core;
 using VSMCP.Shared;
 
 namespace VSMCP.Vsix;
@@ -83,7 +84,17 @@ internal sealed partial class RpcTarget
         var project = VsHelpers.RequireProject(dte.Solution, projectId);
         var projectDir = Path.GetDirectoryName(project.FullName)!;
 
-        var absPath = Path.Combine(projectDir, relativePath.Replace('/', Path.DirectorySeparatorChar));
+        var absPath = Path.GetFullPath(Path.Combine(projectDir, relativePath.Replace('/', Path.DirectorySeparatorChar)));
+        // Confine to the project directory: a relativePath with '..' segments would otherwise resolve
+        // outside the project and clobber an arbitrary file. Path.GetFullPath already normalized the '..'.
+        if (!WriteScopePolicy.IsWithinRoot(projectDir, absPath))
+            throw new VsmcpException(ErrorCodes.WrongState,
+                $"relativePath '{relativePath}' resolves outside the project directory and was rejected.");
+        // Refuse to silently destroy an existing file — scaffolding creates, it does not overwrite.
+        if (File.Exists(absPath))
+            throw new VsmcpException(ErrorCodes.WrongState,
+                $"File already exists: {absPath}. Scaffolding will not overwrite it; edit it with the file/edit tools instead.");
+
         var dir = Path.GetDirectoryName(absPath)!;
         if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
 

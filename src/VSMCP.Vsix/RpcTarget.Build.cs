@@ -36,6 +36,13 @@ internal sealed partial class RpcTarget
         var sb = solution.SolutionBuild
             ?? throw new VsmcpException(ErrorCodes.InteropFault, "SolutionBuild unavailable.");
 
+        // Per-project clean was destructive: it built the project, then cleaned the ENTIRE solution,
+        // discarding every project's outputs. VS/DTE has no safe scoped-clean primitive here, so refuse
+        // it rather than do the data-losing wrong thing. Solution-wide clean (no projectIds) is fine.
+        if (action == BuildAction.Clean && projectIds is { Count: > 0 })
+            throw new VsmcpException(ErrorCodes.WrongState,
+                "Per-project clean is not supported. Call build.clean without projectIds to clean the whole solution, or build.rebuild for a single project.");
+
         if (!string.IsNullOrWhiteSpace(configuration))
             ActivateConfiguration(sb, configuration!, platform);
 
@@ -63,9 +70,8 @@ internal sealed partial class RpcTarget
                     switch (action)
                     {
                         case BuildAction.Clean:
-                            sb.BuildProject(cfgName, unique, WaitForBuildToFinish: false);
-                            sb.Clean(WaitForCleanToFinish: false);
-                            break;
+                            // Unreachable — guarded above. Never clean the whole solution for a scoped request.
+                            throw new VsmcpException(ErrorCodes.WrongState, "Per-project clean is not supported.");
                         case BuildAction.Rebuild:
                             sb.Clean(WaitForCleanToFinish: true);
                             sb.BuildProject(cfgName, unique, WaitForBuildToFinish: false);

@@ -83,8 +83,11 @@ internal sealed partial class RpcTarget
         foreach (var project in EnumerateAllProjects(ws))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var hits = await SymbolFinder.FindDeclarationsAsync(
-                project, namePattern.Replace("*", "").Replace("?", ""), ignoreCase: true, cancellationToken).ConfigureAwait(false);
+            // Match the glob against every source declaration's name via the compiled regex predicate.
+            // FindDeclarationsAsync with a wildcard-stripped string does an EXACT-name lookup, so
+            // "Get*" only returned symbols literally named "Get" — the glob support was silently broken.
+            var hits = await SymbolFinder.FindSourceDeclarationsAsync(
+                project, name => rx.IsMatch(name), cancellationToken).ConfigureAwait(false);
             foreach (var sym in hits)
             {
                 if (!rx.IsMatch(sym.Name)) continue;

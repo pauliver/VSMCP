@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Text;
+using VSMCP.Core;
 using VSMCP.Shared;
 
 namespace VSMCP.Vsix;
@@ -79,6 +81,8 @@ internal sealed partial class RpcTarget
         if (string.IsNullOrWhiteSpace(path))
             throw new VsmcpException(ErrorCodes.NotFound, "Path is required.");
 
+        await EnsureWriteAllowedAsync(path, "file.write", cancellationToken).ConfigureAwait(false);
+
         content ??= string.Empty;
 
         if (Follow.Enabled && File.Exists(path))
@@ -120,6 +124,8 @@ internal sealed partial class RpcTarget
         if (range is null)
             throw new VsmcpException(ErrorCodes.NotFound, "Range is required.");
 
+        await EnsureWriteAllowedAsync(path, "file.replace_range", cancellationToken).ConfigureAwait(false);
+
         text ??= string.Empty;
 
         if (Follow.Enabled)
@@ -157,6 +163,48 @@ internal sealed partial class RpcTarget
             BytesWritten = Encoding.UTF8.GetByteCount(text),
             WentThroughEditor = wentThroughEditor,
         };
+    }
+
+    private string[]? _writeRootsCache;
+
+    /// <summary>
+    /// Confine a mutating file op to the open solution's repository (audit through-line: data safety).
+    /// Fails open only when no root can be determined (no solution/folder), so normal edits are never
+    /// blocked spuriously; when a root IS known, a write outside it throws WrongState.
+    /// </summary>
+    private async Task EnsureWriteAllowedAsync(string path, string operation, CancellationToken ct)
+    {
+        var roots = await GetWriteRootsAsync(ct).ConfigureAwait(false);
+        if (roots.Count > 0)
+            WriteScopePolicy.EnsureWithinAnyRoot(roots, path, operation);
+    }
+
+    /// <summary>Allowed write roots: the solution's enclosing git repo root (else the solution dir). Cached per connection.</summary>
+    private async Task<IReadOnlyList<string>> GetWriteRootsAsync(CancellationToken ct)
+    {
+        if (_writeRootsCache is not null) return _writeRootsCache;
+
+        await _jtf.SwitchToMainThreadAsync(ct);
+        var roots = new List<string>();
+        try
+        {
+            if (await _package.GetServiceAsync(typeof(EnvDTE.DTE)) is EnvDTE80.DTE2 dte)
+            {
+                var slnPath = dte.Solution?.FullName;
+                string? baseDir = string.IsNullOrEmpty(slnPath) ? null
+                    : (Directory.Exists(slnPath) ? slnPath : Path.GetDirectoryName(slnPath));
+                if (!string.IsNullOrEmpty(baseDir))
+                {
+                    var repo = AscendToRepoRoot(baseDir) ?? baseDir;
+                    roots.Add(repo!);
+                    if (!roots.Contains(baseDir!)) roots.Add(baseDir!);
+                }
+            }
+        }
+        catch { /* no root determinable -> fail open */ }
+
+        _writeRootsCache = roots.ToArray();
+        return _writeRootsCache;
     }
 
     public async Task EditorOpenAsync(string path, int? line, int? column, CancellationToken cancellationToken = default)

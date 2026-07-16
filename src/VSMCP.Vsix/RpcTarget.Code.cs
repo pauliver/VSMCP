@@ -268,9 +268,49 @@ internal sealed partial class RpcTarget
             }
         }
 
+        // Guard against the reference-less-compilation pathology: transiently (before the design-time
+        // build finishes) GetDiagnostics can return a flood of CS0518/CS0246 "System not found" errors
+        // because the Compilation has no metadata references — on a file the workspace otherwise
+        // resolves fine (quick_info/find_references work). Reporting ~1000s of phantom errors is worse
+        // than saying "not ready", so collapse them to one actionable note.
+        if (LooksLikeUnresolvedReferences(result.Diagnostics, total))
+        {
+            result.Diagnostics.Clear();
+            result.Diagnostics.Add(new CodeDiagnosticInfo
+            {
+                Id = "VSMCP-references-unresolved",
+                Severity = CodeDiagnosticSeverity.Warning,
+                Message = "Workspace metadata references are not yet resolved (design-time build likely still running), " +
+                          "so diagnostics are unreliable here (many phantom CS0246/CS0518 'System not found' errors were suppressed). Retry shortly.",
+                Category = "VSMCP",
+                Location = null,
+            });
+            result.TotalDiagnostics = result.Diagnostics.Count;
+            result.Truncated = false;
+            return result;
+        }
+
         result.TotalDiagnostics = total;
         result.Truncated = total > result.Diagnostics.Count;
         return result;
+    }
+
+    /// <summary>
+    /// True when the collected diagnostics are overwhelmingly "type/namespace/predefined type not
+    /// found" AND include at least one CS0518 (predefined type not defined) — the unambiguous signal
+    /// that the compilation has no core-library reference, i.e. references simply aren't loaded yet.
+    /// </summary>
+    private static bool LooksLikeUnresolvedReferences(IReadOnlyList<CodeDiagnosticInfo> diags, int total)
+    {
+        if (total < 20 || diags.Count == 0) return false;
+        bool hasCorlibMissing = false;
+        int refErrors = 0;
+        foreach (var d in diags)
+        {
+            if (d.Id == "CS0518") hasCorlibMissing = true;
+            if (d.Id == "CS0518" || d.Id == "CS0246" || d.Id == "CS0234") refErrors++;
+        }
+        return hasCorlibMissing && refErrors >= diags.Count * 0.9;
     }
 
     private static CodeDiagnosticInfo ToDiagInfo(Diagnostic d) => new()

@@ -56,28 +56,19 @@ internal sealed partial class RpcTarget
         };
     }
 
-    /// <summary>Walk forward from the declaration's start line, balancing braces, return the line that closes it.</summary>
+    /// <summary>
+    /// Line that closes the declaration starting at <paramref name="startLineIdx"/>. Delegates to the
+    /// Core boundary scanner, which balances braces over Sanitize()d text (literals/comments stripped)
+    /// so a <c>}</c> inside a string can't mis-close. Throws instead of guessing a range when the
+    /// braces never balance — a wrong range silently corrupts the file.
+    /// </summary>
     private static int FindMemberEndLine(string[] lines, int startLineIdx)
     {
-        int depth = 0;
-        bool sawOpen = false;
-        for (int i = startLineIdx; i < lines.Length; i++)
-        {
-            var line = lines[i];
-            for (int c = 0; c < line.Length; c++)
-            {
-                // Skip strings + chars + line/block comments naively.
-                if (c + 1 < line.Length && line[c] == '/' && line[c + 1] == '/') break;
-                if (line[c] == '{') { depth++; sawOpen = true; }
-                else if (line[c] == '}')
-                {
-                    depth--;
-                    if (sawOpen && depth == 0) return i;
-                }
-                else if (line[c] == ';' && !sawOpen) return i;
-            }
-        }
-        return Math.Min(startLineIdx + 50, lines.Length - 1); // safety bail
+        int end = VSMCP.Core.CppMemberBoundary.FindEndLine(lines, startLineIdx);
+        if (end < 0)
+            throw new VsmcpException(ErrorCodes.WrongState,
+                "Could not determine the end of the C++ member (unbalanced braces). Refusing to guess a range to avoid corrupting the file.");
+        return end;
     }
 
     // ---- cpp_analyzer_status ----

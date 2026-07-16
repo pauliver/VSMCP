@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Microsoft.VisualStudio.Threading;
 using StreamJsonRpc;
 using StreamJsonRpc.Protocol;
+using VSMCP.Core;
 using VSMCP.Shared;
 
 namespace VSMCP.Vsix;
@@ -24,6 +25,14 @@ internal sealed class PipeHost : IDisposable
     private readonly HostActivity _activity;
     private readonly CancellationTokenSource _cts = new();
     private readonly string _pipeName;
+
+    // One shared mutex serializes EVERY inbound RPC dispatch across ALL connections, so two concurrent
+    // clients (or MCP + RearchTool) can't interleave on the shared VS state / single UI thread. It is
+    // held around the whole method execution (base.DispatchRequestAsync completes only when the target
+    // Task does), so mutual exclusion survives ConfigureAwait(false) — unlike a JsonRpc
+    // SynchronizationContext, which only orders the START of dispatch. Long-poll / meta methods are
+    // exempt (RpcConcurrencyPolicy) so build.wait / diag.events_watch don't head-of-line-block.
+    private readonly SemaphoreSlim _rpcGate = new(1, 1);
 
     public PipeHost(VSMCPPackage package, JoinableTaskFactory jtf, HostActivity activity)
     {
@@ -96,12 +105,13 @@ internal sealed class PipeHost : IDisposable
     {
         try { _cts.Cancel(); } catch { }
         _cts.Dispose();
+        _rpcGate.Dispose();
     }
 
     private JsonRpc AttachWithAutoFocus(Stream stream, RpcTarget target)
     {
         var handler = new HeaderDelimitedMessageHandler(stream);
-        var rpc = new AutoFocusJsonRpc(handler, _package, _jtf, target, _activity);
+        var rpc = new AutoFocusJsonRpc(handler, _package, _jtf, target, _activity, _rpcGate);
         rpc.AddLocalRpcTarget(target);
         rpc.StartListening();
         return rpc;
@@ -118,14 +128,16 @@ internal sealed class PipeHost : IDisposable
         private readonly JoinableTaskFactory _jtf;
         private readonly RpcTarget _target;
         private readonly HostActivity _activity;
+        private readonly SemaphoreSlim _rpcGate;
 
-        public AutoFocusJsonRpc(IJsonRpcMessageHandler handler, VSMCPPackage package, JoinableTaskFactory jtf, RpcTarget target, HostActivity activity)
+        public AutoFocusJsonRpc(IJsonRpcMessageHandler handler, VSMCPPackage package, JoinableTaskFactory jtf, RpcTarget target, HostActivity activity, SemaphoreSlim rpcGate)
             : base(handler)
         {
             _package = package;
             _jtf = jtf;
             _target = target;
             _activity = activity;
+            _rpcGate = rpcGate;
             // Send full exception type + message + stack across the wire so the bridge sees the real
             // failure instead of "An error occurred invoking 'X'". Required for #90/#95.
             ExceptionStrategy = ExceptionProcessing.ISerializable;
@@ -133,6 +145,12 @@ internal sealed class PipeHost : IDisposable
 
         protected override async ValueTask<JsonRpcMessage> DispatchRequestAsync(JsonRpcRequest request, TargetMethod targetMethod, CancellationToken cancellationToken)
         {
+            // Serialize the whole method execution under the host-wide gate (exempting long-poll / meta
+            // calls). Holding it around base.DispatchRequestAsync — which completes only when the target
+            // Task does — gives true mutual exclusion that survives ConfigureAwait(false).
+            var exclusive = RpcConcurrencyPolicy.RequiresExclusive(request?.Method ?? "");
+            if (exclusive) await _rpcGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
             var sw = Stopwatch.StartNew();
             string? error = null;
             try
@@ -148,6 +166,7 @@ internal sealed class PipeHost : IDisposable
             }
             finally
             {
+                if (exclusive) _rpcGate.Release();
                 sw.Stop();
                 try { _activity.OnRpcCompleted(request?.Method ?? "?", sw.Elapsed.TotalMilliseconds, error); } catch { }
 

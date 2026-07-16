@@ -28,8 +28,10 @@ internal sealed partial class RpcTarget
         if (string.IsNullOrEmpty(file)) throw new VsmcpException(ErrorCodes.NotFound, "file is required.");
         await Task.Yield();
 
-        if (!File.Exists(file)) throw new VsmcpException(ErrorCodes.NotFound, $"File not found: {file}");
-        var text = File.ReadAllText(file);
+        // Read through the buffer-aware path so a file open with unsaved edits is read from its live
+        // buffer, not stale disk — otherwise the FileWriteAsync below (a full-buffer replace) would
+        // silently discard the user's unsaved changes.
+        var text = (await FileReadAsync(file, null, cancellationToken).ConfigureAwait(false)).Content;
         int count = 0;
         string newText;
 
@@ -230,9 +232,8 @@ internal sealed partial class RpcTarget
         if (!text.EndsWith("\n", StringComparison.Ordinal)) text += "\n";
 
         await _jtf.SwitchToMainThreadAsync(cancellationToken);
-        if (!File.Exists(file)) throw new VsmcpException(ErrorCodes.NotFound, $"File not found: {file}");
-
-        var content = File.ReadAllText(file);
+        // Buffer-aware read so a file open with unsaved edits isn't clobbered by FileWriteAsync below.
+        var content = (await FileReadAsync(file, null, cancellationToken).ConfigureAwait(false)).Content;
         var lines = content.Split('\n').ToList();
 
         int targetIdx = before ? line - 1 : line;
