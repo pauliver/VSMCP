@@ -1,6 +1,8 @@
 using System;
+using System.Diagnostics;
 using System.Reflection;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using ModelContextProtocol;
 using VSMCP.Shared;
 
@@ -24,6 +26,10 @@ public class FaultTranslatingRpc : DispatchProxy
 {
     private IVsmcpRpc _inner = null!;
 
+    /// <summary>Per-RPC logging seam (method/duration/error/correlation id). Set once at startup;
+    /// null keeps the proxy silent. Errors log at Warning, successes at Debug.</summary>
+    public static ILogger? Logger { get; set; }
+
     public static IVsmcpRpc Wrap(IVsmcpRpc inner)
     {
         var proxy = Create<IVsmcpRpc, FaultTranslatingRpc>();
@@ -32,22 +38,48 @@ public class FaultTranslatingRpc : DispatchProxy
     }
 
     /// <summary>Convert any exception to an McpException carrying "{code}: {message}".</summary>
-    public static McpException ToMcp(Exception ex)
+    public static McpException ToMcp(Exception ex) => ToMcp(ex, null);
+
+    /// <summary>Same, stamped with the per-call correlation id so the client-facing error, the
+    /// server log line, and the VSIX-side vsix.log lines are joinable by one id.</summary>
+    public static McpException ToMcp(Exception ex, string? correlationId)
     {
         var e = RpcError.FromException(ex);
-        return new McpException($"{e.Code}: {e.Message}");
+        var suffix = string.IsNullOrEmpty(correlationId) ? "" : $" [vsmcp:{correlationId}]";
+        return new McpException($"{e.Code}: {e.Message}{suffix}");
     }
 
-    public static async Task WrapVoid(Task t)
+    public static async Task WrapVoid(Task t, string method = "(unknown)", string? correlationId = null)
     {
-        try { await t.ConfigureAwait(false); }
-        catch (Exception ex) { throw ToMcp(ex); }
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            await t.ConfigureAwait(false);
+            Logger?.LogDebug("rpc {Method} ok in {Ms}ms [{Id}]", method, sw.ElapsedMilliseconds, correlationId);
+        }
+        catch (Exception ex)
+        {
+            var mcp = ToMcp(ex, correlationId);
+            Logger?.LogWarning("rpc {Method} failed after {Ms}ms [{Id}]: {Error}", method, sw.ElapsedMilliseconds, correlationId, mcp.Message);
+            throw mcp;
+        }
     }
 
-    public static async Task<T> WrapResult<T>(Task<T> t)
+    public static async Task<T> WrapResult<T>(Task<T> t, string method = "(unknown)", string? correlationId = null)
     {
-        try { return await t.ConfigureAwait(false); }
-        catch (Exception ex) { throw ToMcp(ex); }
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var result = await t.ConfigureAwait(false);
+            Logger?.LogDebug("rpc {Method} ok in {Ms}ms [{Id}]", method, sw.ElapsedMilliseconds, correlationId);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            var mcp = ToMcp(ex, correlationId);
+            Logger?.LogWarning("rpc {Method} failed after {Ms}ms [{Id}]: {Error}", method, sw.ElapsedMilliseconds, correlationId, mcp.Message);
+            throw mcp;
+        }
     }
 
     /// <summary>
@@ -77,6 +109,13 @@ public class FaultTranslatingRpc : DispatchProxy
     {
         if (targetMethod is null) return null;
 
+        // Fresh correlation id per call. CorrelationManagerTracingStrategy (set on both JsonRpc
+        // instances) carries it across the pipe, so VSIX vsix.log lines, the server log line,
+        // and the client-facing error all share it.
+        var activity = Guid.NewGuid();
+        Trace.CorrelationManager.ActivityId = activity;
+        var shortId = activity.ToString("N").Substring(0, 8);
+
         object? result;
         try
         {
@@ -85,7 +124,7 @@ public class FaultTranslatingRpc : DispatchProxy
         catch (TargetInvocationException tie) when (tie.InnerException is not null)
         {
             // Synchronous throw before the Task was produced.
-            throw ToMcp(tie.InnerException);
+            throw ToMcp(tie.InnerException, shortId);
         }
 
         // Every IVsmcpRpc method returns Task or Task<T>; object methods (ToString, etc.) don't.
@@ -93,8 +132,8 @@ public class FaultTranslatingRpc : DispatchProxy
         {
             var rt = targetMethod.ReturnType;
             if (rt.IsGenericType && rt.GetGenericTypeDefinition() == typeof(Task<>))
-                return WrapResultMethod.MakeGenericMethod(rt.GetGenericArguments()[0]).Invoke(null, new object[] { task });
-            return WrapVoid(task);
+                return WrapResultMethod.MakeGenericMethod(rt.GetGenericArguments()[0]).Invoke(null, new object?[] { task, targetMethod.Name, shortId });
+            return WrapVoid(task, targetMethod.Name, shortId);
         }
         return result;
     }

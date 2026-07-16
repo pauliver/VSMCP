@@ -95,6 +95,9 @@ public sealed class VsConnection : IAsyncDisposable
             rpc = new JsonRpc(new HeaderDelimitedMessageHandler(stream))
             {
                 ExceptionStrategy = ExceptionProcessing.ISerializable,
+                // Propagate the per-call correlation id (Trace.CorrelationManager.ActivityId,
+                // set in FaultTranslatingRpc) across the pipe so VSIX-side logs share it.
+                ActivityTracingStrategy = new CorrelationManagerTracingStrategy(),
             };
             // Wrap so RPC faults surface to MCP clients as McpException ("{code}: {message}")
             // instead of the SDK's generic "An error occurred invoking 'X'." (#145).

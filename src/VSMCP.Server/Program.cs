@@ -38,6 +38,9 @@ builder.Services
 
 var app = builder.Build();
 
+// Per-RPC logging seam: method/duration/error + correlation id for every proxy call.
+FaultTranslatingRpc.Logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("VSMCP.Rpc");
+
 if (config.LoadError is not null)
     app.Services.GetRequiredService<ILoggerFactory>()
         .CreateLogger("VSMCP.Server")

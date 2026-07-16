@@ -93,7 +93,10 @@ public class FaultTranslatingRpcTests
         var wrapped = FaultTranslatingRpc.Wrap(inner);
 
         var ex = await Assert.ThrowsAsync<McpException>(() => wrapped.PingAsync());
-        Assert.Equal("VSMCP-not-debugging: no session", ex.Message);
+        // Proxied calls stamp a per-call correlation id ("[vsmcp:xxxxxxxx]") so the client error,
+        // the server log line, and the VSIX vsix.log lines are joinable by one id.
+        Assert.StartsWith("VSMCP-not-debugging: no session [vsmcp:", ex.Message);
+        Assert.Matches(@"\[vsmcp:[0-9a-f]{8}\]$", ex.Message);
     }
 
     // ---- Local()/LocalAsync(): server-local (non-proxy) tool bodies translate too (#145 follow-up). ----

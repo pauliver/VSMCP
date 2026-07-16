@@ -22,7 +22,10 @@ public sealed class VsmcpConfig
     public bool AllowSideEffects { get; set; } = true;
     public bool AllowDbgEng { get; set; } = false;
     public int DefaultTimeoutMs { get; set; } = 30_000;
-    public bool FileLoggingEnabled { get; set; } = false;
+
+    /// <summary>File logging under <see cref="LogDirectory"/>. Default ON (at <see cref="LogLevel"/>,
+    /// default warning) so a failure at a stranger's desk leaves a trace without a special build.</summary>
+    public bool FileLoggingEnabled { get; set; } = true;
 
     /// <summary>Override the log directory. Default: <c>%LOCALAPPDATA%\VSMCP\logs</c>.</summary>
     public string? LogDirectory { get; set; }

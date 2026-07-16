@@ -141,6 +141,10 @@ internal sealed class PipeHost : IDisposable
             // Send full exception type + message + stack across the wire so the bridge sees the real
             // failure instead of "An error occurred invoking 'X'". Required for #90/#95.
             ExceptionStrategy = ExceptionProcessing.ISerializable;
+            // Adopt the server's per-call correlation id (traceparent header →
+            // Trace.CorrelationManager.ActivityId) so VsmcpLog lines carry the same id the
+            // client-facing error reports.
+            ActivityTracingStrategy = new CorrelationManagerTracingStrategy();
         }
 
         protected override async ValueTask<JsonRpcMessage> DispatchRequestAsync(JsonRpcRequest request, TargetMethod targetMethod, CancellationToken cancellationToken)
