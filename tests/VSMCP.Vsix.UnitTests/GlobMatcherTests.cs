@@ -41,4 +41,14 @@ public class GlobMatcherTests
         Assert.Matches(rx, "Foo.cs");
         Assert.DoesNotMatch(rx, "a/Foo.cs");   // anchored: bare * does not cross separators
     }
+
+    [Fact]
+    public void MatchesPathOrName_precompiled_overload_matches_string_overload()
+    {
+        // Scanners must compile once and reuse this overload (per-file recompile is quadratic-ish
+        // on UE-sized solutions). It must agree with the convenience string overload.
+        var rx = GlobMatcher.ToRegex("*.cs");
+        foreach (var p in new[] { @"P:\repo\src\Foo.cs", "a/b/Bar.cs", "x/Foo.txt" })
+            Assert.Equal(GlobMatcher.MatchesPathOrName(p, "*.cs"), GlobMatcher.MatchesPathOrName(p, rx));
+    }
 }

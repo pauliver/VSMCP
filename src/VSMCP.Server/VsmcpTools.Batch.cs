@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
 using ModelContextProtocol.Server;
+using VSMCP.Core;
 using VSMCP.Shared;
 
 namespace VSMCP.Server;
@@ -67,8 +68,16 @@ public sealed partial class VsmcpTools
         [Description("Expressions to evaluate. Each item is a full EvalOptions.")] IReadOnlyList<EvalOptions> items,
         CancellationToken ct = default)
     {
+        // Apply the global side-effect ceiling per item, exactly as the single-item eval.expression does
+        // (VsmcpTools.Debugging.cs). Without this, a client could bypass a locked-down instance
+        // (allowSideEffects:false) by routing side-effecting evaluations through the _many variant.
         var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
-        return await RunBatchAsync(items, (opt, c) => proxy.EvalExpressionAsync(opt, c), ct).ConfigureAwait(false);
+        return await RunBatchAsync(items, (opt, c) =>
+        {
+            if (opt is not null)
+                opt.AllowSideEffects = SideEffectPolicy.Enforce(opt.AllowSideEffects, _config.AllowSideEffects, "eval.expression_many");
+            return proxy.EvalExpressionAsync(opt, c);
+        }, ct).ConfigureAwait(false);
     }
 
     [McpServerTool(Name = "file.read_many")]

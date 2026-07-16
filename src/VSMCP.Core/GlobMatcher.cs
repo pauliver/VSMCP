@@ -58,8 +58,13 @@ public static class GlobMatcher
 
     /// <summary>Match a glob against the full path OR the bare file name (so "*.cs" matches "a/b/x.cs").</summary>
     public static bool MatchesPathOrName(string path, string pattern)
-    {
-        var rx = ToRegex(pattern);
-        return rx.IsMatch(path) || rx.IsMatch(Path.GetFileName(path));
-    }
+        => MatchesPathOrName(path, ToRegex(pattern));
+
+    /// <summary>
+    /// Match against a PRE-COMPILED regex (from <see cref="ToRegex"/>). Callers scanning many files
+    /// must compile once and reuse this overload — the string overload recompiles the pattern per
+    /// call, which is quadratic-ish over an Unreal-sized solution.
+    /// </summary>
+    public static bool MatchesPathOrName(string path, Regex rx)
+        => rx.IsMatch(path) || rx.IsMatch(Path.GetFileName(path));
 }

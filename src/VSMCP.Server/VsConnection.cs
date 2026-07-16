@@ -6,6 +6,7 @@ using System.IO.Pipes;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using ModelContextProtocol;
 using StreamJsonRpc;
 using VSMCP.Shared;
 
@@ -36,14 +37,8 @@ public sealed class VsConnection : IAsyncDisposable
         {
             if (IsConnected && _proxy is not null) return _proxy;
 
-            var instances = ListInstances();
-            if (instances.Count == 0)
-                throw new InvalidOperationException($"{ErrorCodes.NotConnected}: no running Visual Studio 2022 instance with the VSMCP extension was found. Open VS and ensure the VSMCP extension is installed.");
-
-            if (instances.Count > 1)
-                throw new InvalidOperationException($"{ErrorCodes.NotConnected}: multiple VS instances found ({instances.Count}). Call vs.list_instances and vs.select first.");
-
-            await ConnectToAsync(instances[0].ProcessId, ct).ConfigureAwait(false);
+            var pid = SelectSingleInstanceOrThrow(ListInstances());
+            await ConnectToUnlockedAsync(pid, ct).ConfigureAwait(false);
             return _proxy!;
         }
         finally
@@ -52,41 +47,80 @@ public sealed class VsConnection : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Resolve the single connectable VS instance, or throw. These errors are thrown OUTSIDE the
+    /// FaultTranslatingRpc proxy (there is no proxy yet), so they must be <see cref="McpException"/>
+    /// directly — otherwise the MCP SDK sanitizes them to a generic "An error occurred" and the
+    /// actionable remediation ("call vs.list_instances / vs.select") never reaches the client.
+    /// </summary>
+    public static int SelectSingleInstanceOrThrow(IReadOnlyList<VsInstance> instances)
+    {
+        if (instances.Count == 0)
+            throw new McpException($"{ErrorCodes.NotConnected}: no running Visual Studio 2022 instance with the VSMCP extension was found. Open VS and ensure the VSMCP extension is installed.");
+        if (instances.Count > 1)
+            throw new McpException($"{ErrorCodes.NotConnected}: multiple VS instances found ({instances.Count}). Call vs.list_instances and vs.select first.");
+        return instances[0].ProcessId;
+    }
+
+    /// <summary>Public entry (e.g. vs.select). Acquires the gate so it can't race a concurrent connect.</summary>
     public async Task ConnectToAsync(int pid, CancellationToken ct)
     {
-        await DisposeCurrentAsync().ConfigureAwait(false);
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try { await ConnectToUnlockedAsync(pid, ct).ConfigureAwait(false); }
+        finally { _gate.Release(); }
+    }
 
+    /// <summary>
+    /// Caller MUST hold <see cref="_gate"/>. Builds and validates the new connection into locals and
+    /// only swaps it in — disposing the previous one — AFTER the handshake succeeds, so a failed
+    /// vs.select to a wrong/dead pid leaves the current session intact. On ANY failure the half-built
+    /// stream + JsonRpc are disposed so the pipe handle and read loop can't leak, and transport
+    /// failures are translated to <see cref="McpException"/> so the client gets a real reason.
+    /// </summary>
+    private async Task ConnectToUnlockedAsync(int pid, CancellationToken ct)
+    {
         var pipeName = PipeNaming.ForProcess(pid);
-        var stream = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-        await stream.ConnectAsync(5000, ct).ConfigureAwait(false);
-
-        // Construct manually so we can set ExceptionStrategy BEFORE StartListening — the
-        // Attach(stream) factory starts listening eagerly and locks configuration. Symptom
-        // of the bug: 'This cannot be done after listening has started' on every connect.
-        // Match the VSIX side so deserialized RemoteInvocationExceptions carry the real
-        // remote message + type instead of the generic "An error occurred invoking 'X'".
-        var rpc = new JsonRpc(new HeaderDelimitedMessageHandler(stream))
+        NamedPipeClientStream? stream = null;
+        JsonRpc? rpc = null;
+        try
         {
-            ExceptionStrategy = ExceptionProcessing.ISerializable,
-        };
-        // Wrap so RPC faults surface to MCP clients as McpException ("{code}: {message}")
-        // instead of the SDK's generic "An error occurred invoking 'X'." (#145).
-        var proxy = FaultTranslatingRpc.Wrap(rpc.Attach<IVsmcpRpc>());
-        rpc.StartListening();
+            stream = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+            await stream.ConnectAsync(5000, ct).ConfigureAwait(false);
 
-        var hs = await proxy.HandshakeAsync(ProtocolVersion.Major, ProtocolVersion.Minor, ct).ConfigureAwait(false);
-        if (hs.ProtocolMajor != ProtocolVersion.Major)
-        {
-            rpc.Dispose();
-            stream.Dispose();
-            throw new InvalidOperationException(
-                $"{ErrorCodes.UpgradeRequired}: bridge protocol v{ProtocolVersion.DisplayString} is incompatible with extension v{hs.ProtocolMajor}.{hs.ProtocolMinor}. Update both to matching versions.");
+            // Construct manually so we can set ExceptionStrategy BEFORE StartListening — the
+            // Attach(stream) factory starts listening eagerly and locks configuration. Symptom
+            // of the bug: 'This cannot be done after listening has started' on every connect.
+            // Match the VSIX side so deserialized RemoteInvocationExceptions carry the real
+            // remote message + type instead of the generic "An error occurred invoking 'X'".
+            rpc = new JsonRpc(new HeaderDelimitedMessageHandler(stream))
+            {
+                ExceptionStrategy = ExceptionProcessing.ISerializable,
+            };
+            // Wrap so RPC faults surface to MCP clients as McpException ("{code}: {message}")
+            // instead of the SDK's generic "An error occurred invoking 'X'." (#145).
+            var proxy = FaultTranslatingRpc.Wrap(rpc.Attach<IVsmcpRpc>());
+            rpc.StartListening();
+
+            var hs = await proxy.HandshakeAsync(ProtocolVersion.Major, ProtocolVersion.Minor, ct).ConfigureAwait(false);
+            if (hs.ProtocolMajor != ProtocolVersion.Major)
+                throw new McpException(
+                    $"{ErrorCodes.UpgradeRequired}: bridge protocol v{ProtocolVersion.DisplayString} is incompatible with extension v{hs.ProtocolMajor}.{hs.ProtocolMinor}. Update both to matching versions.");
+
+            // Validated — replace the previous connection only now.
+            await DisposeCurrentAsync().ConfigureAwait(false);
+            _stream = stream;
+            _rpc = rpc;
+            _proxy = proxy;
+            _connectedPid = pid;
         }
-
-        _stream = stream;
-        _rpc = rpc;
-        _proxy = proxy;
-        _connectedPid = pid;
+        catch (Exception ex)
+        {
+            try { rpc?.Dispose(); } catch { }
+            try { stream?.Dispose(); } catch { }
+            if (ex is McpException || ex is OperationCanceledException) throw;
+            throw new McpException(
+                $"{ErrorCodes.NotConnected}: could not connect to Visual Studio process {pid} (pipe '{pipeName}'): {ex.Message}");
+        }
     }
 
     /// <summary>Enumerates VS processes that have a VSMCP pipe listening.</summary>
