@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.VisualStudio.Threading;
 using VSMCP.Core;
 using VSMCP.Shared;
 
@@ -89,6 +90,7 @@ internal sealed partial class RpcTarget
         // test fixtures, generated files outside csproj membership). Without this the search is
         // blind to anything VS doesn't enumerate via DTE.
         await _jtf.SwitchToMainThreadAsync(ct);
+        string? walkRoot = null;
         try
         {
             if (await _package.GetServiceAsync(typeof(EnvDTE.DTE)) is EnvDTE80.DTE2 dte
@@ -97,17 +99,26 @@ internal sealed partial class RpcTarget
             {
                 var root = sln.FullName;
                 if (!Directory.Exists(root)) root = Path.GetDirectoryName(root);
-                root = AscendToRepoRoot(root);
-                if (!string.IsNullOrEmpty(root) && Directory.Exists(root))
+                walkRoot = AscendToRepoRoot(root);
+            }
+        }
+        catch { /* best-effort */ }
+
+        // The disk walk and per-file parse below are pure I/O/CPU — get OFF the UI thread (F5).
+        await TaskScheduler.Default;
+        try
+        {
+            if (!string.IsNullOrEmpty(walkRoot) && Directory.Exists(walkRoot))
+            {
+                foreach (var p in WalkCppFilesUnder(walkRoot!))
                 {
-                    foreach (var p in WalkCppFilesUnder(root!))
-                    {
-                        if (seen.Add(p))
-                            files.Files.Add(new FileListItem { Path = p, Kind = "file" });
-                    }
+                    ct.ThrowIfCancellationRequested();
+                    if (seen.Add(p))
+                        files.Files.Add(new FileListItem { Path = p, Kind = "file" });
                 }
             }
         }
+        catch (OperationCanceledException) { throw; }
         catch { /* best-effort */ }
 
         foreach (var f in files.Files)

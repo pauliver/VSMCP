@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.VisualStudio.Threading;
 using VSMCP.Core;
 using VSMCP.Shared;
 
@@ -54,6 +55,7 @@ internal sealed partial class RpcTarget
         foreach (var f in listed.Files) if (seen.Add(f.Path)) paths.Add(f.Path);
 
         await _jtf.SwitchToMainThreadAsync(ct);
+        string? walkRoot = null;
         try
         {
             if (await _package.GetServiceAsync(typeof(EnvDTE.DTE)) is EnvDTE80.DTE2 dte
@@ -61,12 +63,23 @@ internal sealed partial class RpcTarget
             {
                 var root = sln.FullName;
                 if (!Directory.Exists(root)) root = Path.GetDirectoryName(root);
-                root = AscendToRepoRoot(root);
-                if (!string.IsNullOrEmpty(root) && Directory.Exists(root))
-                    foreach (var p in WalkCppFilesUnder(root!))
-                        if (seen.Add(p)) paths.Add(p);
+                walkRoot = AscendToRepoRoot(root);
             }
         }
+        catch { /* best-effort; project files alone are still indexed */ }
+
+        // The disk walk and per-file parse below are pure I/O/CPU — get OFF the UI thread (F5).
+        await TaskScheduler.Default;
+        try
+        {
+            if (!string.IsNullOrEmpty(walkRoot) && Directory.Exists(walkRoot))
+                foreach (var p in WalkCppFilesUnder(walkRoot!))
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (seen.Add(p)) paths.Add(p);
+                }
+        }
+        catch (OperationCanceledException) { throw; }
         catch { /* best-effort; project files alone are still indexed */ }
 
         s_cppIndex.Clear();

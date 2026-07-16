@@ -14,7 +14,7 @@ internal sealed partial class RpcTarget
 {
     // ---- cpp_rename_solution ----
 
-    public async Task<CppRenameSolutionResult> CppRenameSolutionAsync(string file, int line, int column, string newName, int maxFiles, CancellationToken cancellationToken = default)
+    public async Task<CppRenameSolutionResult> CppRenameSolutionAsync(string file, int line, int column, string newName, int maxFiles, bool dryRun, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(file)) throw new VsmcpException(ErrorCodes.NotFound, "file is required.");
         if (string.IsNullOrEmpty(newName)) throw new VsmcpException(ErrorCodes.NotFound, "newName is required.");
@@ -22,23 +22,57 @@ internal sealed partial class RpcTarget
 
         // Use cpp_find_references_solution to find all callsites across TUs.
         var refs = await CppFindReferencesSolutionAsync(file, line, column, maxFiles, null, null, cancellationToken).ConfigureAwait(false);
+
+        var result = new CppRenameSolutionResult
+        {
+            OldName = refs.Spelling ?? "",
+            NewName = newName,
+            DryRun = dryRun,
+            Truncated = refs.Truncated,
+            TotalReferences = refs.Total,
+        };
         if (refs.Locations.Count == 0)
-            return new CppRenameSolutionResult { OldName = refs.Spelling ?? "", NewName = newName };
+            return result;
 
         var oldName = refs.Spelling ?? "";
         if (string.IsNullOrEmpty(oldName))
             throw new VsmcpException(ErrorCodes.WrongState, "Could not determine the old name from the cursor.");
+
+        var roots = await GetWriteRootsAsync(cancellationToken).ConfigureAwait(false);
 
         // Group by file to coordinate edits per-file (bottom-up within each file).
         var byFile = refs.Locations
             .GroupBy(l => l.File ?? "", StringComparer.OrdinalIgnoreCase)
             .Where(g => !string.IsNullOrEmpty(g.Key));
 
-        var edited = new List<CppLocation>();
-        int filesEdited = 0;
         foreach (var group in byFile)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            // Never splice files outside the solution/repo write roots — libclang reports
+            // references inside system and SDK headers too, and rewriting those is catastrophic.
+            var target = Path.GetFullPath(group.Key);
+            if (roots.Count > 0 && !WriteScopePolicy.IsWithinAnyRoot(roots, target))
+            {
+                result.SkippedOutOfScope += group.Count();
+                continue;
+            }
+
+            // Re-verify every splice site against CURRENT content — the reference positions come
+            // from a parse that may predate other edits. A mismatch is skipped, never spliced.
+            string[] lines;
+            try
+            {
+                var content = (await FileReadAsync(target, null, cancellationToken).ConfigureAwait(false)).Content;
+                lines = content.Split('\n');
+            }
+            catch
+            {
+                result.SkippedMismatched += group.Count();
+                continue;
+            }
+
+            bool editedAny = false;
             var ordered = group
                 .OrderByDescending(l => l.Line)
                 .ThenByDescending(l => l.Column)
@@ -46,27 +80,49 @@ internal sealed partial class RpcTarget
             foreach (var loc in ordered)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                await FileReplaceRangeAsync(loc.File, new FileRange
+                if (!SpliceSiteMatches(lines, loc.Line, loc.Column, oldName))
                 {
-                    StartLine = loc.Line,
-                    StartColumn = loc.Column,
-                    EndLine = loc.Line,
-                    EndColumn = loc.Column + oldName.Length,
-                }, newName, cancellationToken).ConfigureAwait(false);
-                edited.Add(loc);
+                    result.SkippedMismatched++;
+                    continue;
+                }
+
+                if (!dryRun)
+                {
+                    await FileReplaceRangeAsync(target, new FileRange
+                    {
+                        StartLine = loc.Line,
+                        StartColumn = loc.Column,
+                        EndLine = loc.Line,
+                        EndColumn = loc.Column + oldName.Length,
+                    }, newName, cancellationToken).ConfigureAwait(false);
+                }
+                result.EditedLocations.Add(loc);
+                editedAny = true;
             }
-            try { await CppInvalidateAsync(group.Key, cancellationToken).ConfigureAwait(false); } catch { }
-            filesEdited++;
+
+            if (editedAny)
+            {
+                if (!dryRun)
+                {
+                    try { await CppInvalidateAsync(target, cancellationToken).ConfigureAwait(false); } catch { }
+                }
+                result.FilesEdited++;
+            }
         }
 
-        return new CppRenameSolutionResult
-        {
-            OldName = oldName,
-            NewName = newName,
-            EditedLocations = edited,
-            FilesEdited = filesEdited,
-            TotalReferences = refs.Total,
-        };
+        return result;
+    }
+
+    /// <summary>True when <paramref name="lines"/> (0-based array of 1-based-addressed lines)
+    /// still contains <paramref name="oldName"/> at the 1-based (line, column) splice site.</summary>
+    private static bool SpliceSiteMatches(string[] lines, int line, int column, string oldName)
+    {
+        var li = line - 1;
+        if (li < 0 || li >= lines.Length) return false;
+        var text = lines[li].TrimEnd('\r');
+        var ci = column - 1;
+        return ci >= 0 && ci + oldName.Length <= text.Length
+            && string.CompareOrdinal(text, ci, oldName, 0, oldName.Length) == 0;
     }
 
     /// <summary>

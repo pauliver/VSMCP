@@ -252,19 +252,21 @@ internal sealed partial class RpcTarget
         if (string.IsNullOrEmpty(file)) throw new VsmcpException(ErrorCodes.NotFound, "file is required.");
         if (maxFiles <= 0) maxFiles = 200;
 
-        // Enumerate all C++ files in the solution to walk for refs.
+        // Enumerate all C++ files in the solution to walk for refs. Ask for one more than the
+        // cap so a truncated walk is detectable (Truncated flag on the result).
         var allFiles = await FileListAsync(null, null, "*.{h,hpp,hxx,hh,c,cpp,cc,cxx}",
-            new[] { "file" }, maxFiles, cancellationToken).ConfigureAwait(false);
-        var others = allFiles.Files
+            new[] { "file" }, maxFiles + 1, cancellationToken).ConfigureAwait(false);
+        var candidates = allFiles.Files
             .Select(f => f.Path)
             .Where(p => !string.Equals(p, System.IO.Path.GetFullPath(file), System.StringComparison.OrdinalIgnoreCase))
-            .Take(maxFiles)
-            .ToArray();
+            .ToList();
+        var others = candidates.Take(maxFiles).ToArray();
 
         await EnsurePchPushedAsync(file, cancellationToken).ConfigureAwait(false);
         var includes = await ResolveCppIncludesAsync(file, extraIncludes, cancellationToken).ConfigureAwait(false);
         var proxy = await CppAnalyzerHost.GetProxyAsync(cancellationToken).ConfigureAwait(false);
         var result = await proxy.FindReferencesInFilesAsync(file, line, column, others, includes, extraDefines, cancellationToken).ConfigureAwait(false);
+        result.Truncated = candidates.Count > others.Length;
         if (Follow.Enabled)
             await Follow.TouchAsync(file, line, column, isEdit: false, cancellationToken).ConfigureAwait(false);
         return result;
@@ -286,6 +288,18 @@ internal sealed partial class RpcTarget
         if (string.IsNullOrEmpty(oldName))
             throw new VsmcpException(ErrorCodes.WrongState, "Could not determine the old name from the cursor.");
 
+        // Re-verify each splice site against current content so a stale parse can't corrupt the
+        // file — mismatched sites are skipped, not spliced.
+        string[] currentLines;
+        try
+        {
+            currentLines = (await FileReadAsync(file, null, cancellationToken).ConfigureAwait(false)).Content.Split('\n');
+        }
+        catch
+        {
+            currentLines = System.Array.Empty<string>();
+        }
+
         // Sort locations bottom-up so earlier edits don't shift later ones.
         var ordered = refs.Locations
             .OrderByDescending(l => l.Line)
@@ -296,6 +310,7 @@ internal sealed partial class RpcTarget
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (string.IsNullOrEmpty(loc.File)) continue;
+            if (!SpliceSiteMatches(currentLines, loc.Line, loc.Column, oldName)) continue;
             // Splice: replace the [column, column+oldName.Length) range with newName.
             await FileReplaceRangeAsync(loc.File, new FileRange
             {

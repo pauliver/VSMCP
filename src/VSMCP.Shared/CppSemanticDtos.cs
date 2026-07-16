@@ -25,6 +25,10 @@ public sealed class CppLocationListResult
     public int Total { get; set; }
     public string? Spelling { get; set; }
     public string? Kind { get; set; }
+
+    /// <summary>True when the solution-wide file walk hit its maxFiles cap — there may be
+    /// additional references in files that were not parsed.</summary>
+    public bool Truncated { get; set; }
 }
 
 public sealed class CppQuickInfoResult

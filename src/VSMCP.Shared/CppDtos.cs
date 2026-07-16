@@ -212,6 +212,21 @@ public sealed class CppRenameSolutionResult
     public List<CppLocation> EditedLocations { get; set; } = new();
     public int FilesEdited { get; set; }
     public int TotalReferences { get; set; }
+
+    /// <summary>True when no edits were written — EditedLocations is the plan, not the result.</summary>
+    public bool DryRun { get; set; }
+
+    /// <summary>Reference sites skipped because their file is outside the solution/repo write
+    /// roots (e.g. system or SDK headers). Those are never rewritten.</summary>
+    public int SkippedOutOfScope { get; set; }
+
+    /// <summary>Reference sites skipped because the current file content no longer has the old
+    /// name at the reported position (stale parse, concurrent edit). Skipped, not corrupted.</summary>
+    public int SkippedMismatched { get; set; }
+
+    /// <summary>True when the file walk hit maxFiles — references beyond the cap were not found,
+    /// so the rename may be incomplete. Raise maxFiles and re-run to cover the rest.</summary>
+    public bool Truncated { get; set; }
 }
 
 public sealed class CppMoveTypeResult

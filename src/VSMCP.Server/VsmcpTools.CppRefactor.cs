@@ -54,11 +54,12 @@ public sealed partial class VsmcpTools
         [Description("1-based line of the symbol.")] int line,
         [Description("1-based column of the symbol.")] int column,
         [Description("New name.")] string newName,
-        [Description("Cap on the number of TUs walked (default 200).")] int maxFiles = 200,
+        [Description("Cap on the number of TUs walked (default 200). Result.Truncated=true means the cap was hit and the rename may be incomplete.")] int maxFiles = 200,
+        [Description("When true, reports what WOULD be edited (EditedLocations/FilesEdited) without writing anything.")] bool dryRun = false,
         CancellationToken ct = default)
     {
         var proxy = await _connection.GetOrConnectAsync(ct).ConfigureAwait(false);
-        return await proxy.CppRenameSolutionAsync(file, line, column, newName, maxFiles, ct).ConfigureAwait(false);
+        return await proxy.CppRenameSolutionAsync(file, line, column, newName, maxFiles, dryRun, ct).ConfigureAwait(false);
     }
 
     [McpServerTool(Name = "cpp.move_type")]

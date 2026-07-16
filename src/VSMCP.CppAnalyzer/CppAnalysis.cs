@@ -426,16 +426,6 @@ internal sealed class CppAnalysis : IDisposable
     private unsafe TuLease AcquireTu(string file, string[]? extraIncludes, string[]? extraDefines)
     {
         var full = Path.GetFullPath(file);
-        lock (_lock)
-        {
-            if (_tus.TryGetValue(full, out var node))
-            {
-                // Cache hit — bump to MRU and return.
-                _lru.Remove(node);
-                _lru.AddFirst(node);
-                return new TuLease(node.Value);
-            }
-        }
 
         var args = BuildClangArgs(full, extraIncludes, extraDefines);
 
@@ -451,6 +441,32 @@ internal sealed class CppAnalysis : IDisposable
                 var augmented = new List<string>(args.Length + 2) { "-include-pch", compiledPch! };
                 augmented.AddRange(args);
                 args = augmented.ToArray();
+            }
+        }
+
+        // Cache validity = same effective clang args AND same on-disk timestamp. A hit keyed on
+        // path alone returned stale TUs after the file changed on disk or the caller supplied
+        // different includes/defines. (Unsaved-buffer changes already invalidate via cpp_invalidate.)
+        var argsKey = string.Join("\u0001", args);
+        DateTime diskStamp;
+        try { diskStamp = File.GetLastWriteTimeUtc(full); } catch { diskStamp = DateTime.MinValue; }
+
+        lock (_lock)
+        {
+            if (_tus.TryGetValue(full, out var node))
+            {
+                if (node.Value.ArgsKey == argsKey && node.Value.DiskStamp == diskStamp)
+                {
+                    // Cache hit — bump to MRU and return.
+                    _lru.Remove(node);
+                    _lru.AddFirst(node);
+                    return new TuLease(node.Value);
+                }
+
+                // Stale — drop and reparse below.
+                node.Value.Tu.Dispose();
+                _lru.Remove(node);
+                _tus.Remove(full);
             }
         }
 
@@ -488,16 +504,22 @@ internal sealed class CppAnalysis : IDisposable
                 CXTranslationUnit_Flags.CXTranslationUnit_DetailedPreprocessingRecord
                 | CXTranslationUnit_Flags.CXTranslationUnit_KeepGoing);
 
-            var cached = new CachedTu(full, unit);
+            var cached = new CachedTu(full, unit, argsKey, diskStamp);
             lock (_lock)
             {
                 // Race: another caller may have populated the slot.
                 if (_tus.TryGetValue(full, out var existing))
                 {
-                    cached.Tu.Dispose();
+                    if (existing.Value.ArgsKey == argsKey && existing.Value.DiskStamp == diskStamp)
+                    {
+                        cached.Tu.Dispose();
+                        _lru.Remove(existing);
+                        _lru.AddFirst(existing);
+                        return new TuLease(existing.Value);
+                    }
+                    existing.Value.Tu.Dispose();
                     _lru.Remove(existing);
-                    _lru.AddFirst(existing);
-                    return new TuLease(existing.Value);
+                    _tus.Remove(full);
                 }
                 var node = _lru.AddFirst(cached);
                 _tus[full] = node;
@@ -549,7 +571,18 @@ internal sealed class CppAnalysis : IDisposable
     {
         public string FilePath { get; }
         public CXTranslationUnit Tu { get; }
-        public CachedTu(string filePath, CXTranslationUnit tu) { FilePath = filePath; Tu = tu; }
+        /// <summary>Effective clang args at parse time — a different set means this TU is stale.</summary>
+        public string ArgsKey { get; }
+        /// <summary>On-disk LastWriteTimeUtc at parse time — a newer file means this TU is stale.</summary>
+        public DateTime DiskStamp { get; }
+
+        public CachedTu(string filePath, CXTranslationUnit tu, string argsKey, DateTime diskStamp)
+        {
+            FilePath = filePath;
+            Tu = tu;
+            ArgsKey = argsKey;
+            DiskStamp = diskStamp;
+        }
     }
 
     private readonly struct TuLease : IDisposable

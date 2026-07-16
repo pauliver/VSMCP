@@ -9,6 +9,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.FindSymbols;
 using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Threading;
 using VSMCP.Core;
 using VSMCP.Shared;
 
@@ -62,12 +63,17 @@ internal sealed partial class RpcTarget
             if (result.Files.Count >= maxResults) break;
         }
 
+        // Capture the workspace path while still on the main thread, then hop off — the disk
+        // walks below are pure I/O and must not freeze the VS UI (F5).
+        string? solutionFullName = null;
+        try { solutionFullName = solution.FullName; } catch { }
+        await TaskScheduler.Default;
+
         // Open Folder mode: no real projects loaded, but the workspace path points to a real
         // directory. Walk it directly so file_list / file_glob aren't dead in folder mode (#97).
         if (!sawAnyRealProject && projectId is null && result.Files.Count < maxResults)
         {
-            string? root = null;
-            try { root = solution.FullName; } catch { }
+            var root = solutionFullName;
             if (!string.IsNullOrEmpty(root) && Directory.Exists(root))
             {
                 var startDir = string.IsNullOrEmpty(folder)
@@ -78,8 +84,86 @@ internal sealed partial class RpcTarget
             }
         }
 
+        // C++ projects (UE-scale .vcxproj / UBT makefile projects especially) expose items
+        // slowly or incompletely through DTE, leaving the C++ tree invisible to the generic
+        // tools. Supplement with a solution-rooted disk scan limited to C/C++ files; seenPaths
+        // dedupes anything DTE already reported.
+        if (sawAnyRealProject && projectId is null && string.IsNullOrEmpty(folder)
+            && result.Files.Count < maxResults
+            && !string.IsNullOrEmpty(solutionFullName))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var slnDir = Directory.Exists(solutionFullName!)
+                ? solutionFullName!
+                : Path.GetDirectoryName(solutionFullName!);
+            if (!string.IsNullOrEmpty(slnDir) && Directory.Exists(slnDir))
+                CollectCppFromDirectory(slnDir!, pattern, kinds, maxResults, result, seenPaths);
+        }
+
         result.Total = result.Files.Count;
         return result;
+    }
+
+    private static readonly HashSet<string> CppExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".h", ".hpp", ".hxx", ".hh", ".inl", ".c", ".cpp", ".cc", ".cxx",
+    };
+
+    /// <summary>Solution-rooted disk scan for C/C++ sources the DTE walk missed. Same cruft
+    /// skipping as <see cref="CollectFromDirectory"/> but restricted to C/C++ extensions so it
+    /// can't flood results with build outputs or assets.</summary>
+    private static void CollectCppFromDirectory(
+        string root, string? pattern, IReadOnlyList<string>? kinds,
+        int maxResults, FileListResult result, HashSet<string> seenPaths)
+    {
+        if (kinds is not null && !kinds.Contains("file")) return;
+
+        var skipDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".git", ".vs", ".vscode", "bin", "obj", "node_modules", "packages",
+            "Intermediate", "Saved", "DerivedDataCache", // UE working dirs
+        };
+
+        var stack = new Stack<string>();
+        stack.Push(root);
+
+        while (stack.Count > 0)
+        {
+            var dir = stack.Pop();
+            string[] entries;
+            try { entries = Directory.GetFiles(dir); }
+            catch { continue; }
+
+            foreach (var file in entries)
+            {
+                if (!CppExtensions.Contains(Path.GetExtension(file))) continue;
+                if (!seenPaths.Add(file)) continue;
+                if (pattern is not null && !MatchesGlob(file, pattern)) continue;
+
+                result.Files.Add(new FileListItem
+                {
+                    Path = file,
+                    Kind = "file",
+                    Language = GetLanguage(file),
+                    ProjectId = null,
+                });
+
+                if (result.Files.Count >= maxResults)
+                {
+                    result.Truncated = true;
+                    return;
+                }
+            }
+
+            string[] subdirs;
+            try { subdirs = Directory.GetDirectories(dir); }
+            catch { continue; }
+            foreach (var sub in subdirs)
+            {
+                if (skipDirs.Contains(Path.GetFileName(sub))) continue;
+                stack.Push(sub);
+            }
+        }
     }
 
     private static void CollectFromDirectory(
