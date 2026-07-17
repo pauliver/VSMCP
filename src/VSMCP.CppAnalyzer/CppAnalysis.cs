@@ -228,12 +228,7 @@ internal sealed class CppAnalysis : IDisposable
         var full = Path.GetFullPath(file);
         lock (_lock)
         {
-            if (_tus.TryGetValue(full, out var node))
-            {
-                node.Value.Tu.Dispose();
-                _lru.Remove(node);
-                _tus.Remove(full);
-            }
+            DropAllForFileLocked(full);
         }
     }
 
@@ -256,14 +251,9 @@ internal sealed class CppAnalysis : IDisposable
                 // libclang wants raw bytes (UTF-8 in practice for C++ source).
                 _unsavedBuffers[full] = System.Text.Encoding.UTF8.GetBytes(content!);
             }
-            // Also drop any cached TU for this file so the next call reparses with
-            // the override visible.
-            if (_tus.TryGetValue(full, out var node))
-            {
-                node.Value.Tu.Dispose();
-                _lru.Remove(node);
-                _tus.Remove(full);
-            }
+            // Also drop any cached TU (all args variants) for this file so the next call
+            // reparses with the override visible.
+            DropAllForFileLocked(full);
         }
     }
 
@@ -274,12 +264,7 @@ internal sealed class CppAnalysis : IDisposable
         {
             if (string.IsNullOrEmpty(pchHeader)) _pchByFile.Remove(full);
             else _pchByFile[full] = Path.GetFullPath(pchHeader!);
-            if (_tus.TryGetValue(full, out var node))
-            {
-                node.Value.Tu.Dispose();
-                _lru.Remove(node);
-                _tus.Remove(full);
-            }
+            DropAllForFileLocked(full);
         }
     }
 
@@ -444,29 +429,30 @@ internal sealed class CppAnalysis : IDisposable
             }
         }
 
-        // Cache validity = same effective clang args AND same on-disk timestamp. A hit keyed on
-        // path alone returned stale TUs after the file changed on disk or the caller supplied
-        // different includes/defines. (Unsaved-buffer changes already invalidate via cpp_invalidate.)
+        // Cache key = file path + effective clang args, so callers with different includes/
+        // defines coexist as separate entries (one path-keyed slot made them dispose each
+        // other's TU on every alternation — a full reparse per call). Validity within an entry
+        // is the on-disk timestamp. (Unsaved-buffer changes invalidate via cpp_invalidate.)
         var argsKey = string.Join("\u0001", args);
+        var cacheKey = full + "\u0001" + argsKey;
         DateTime diskStamp;
         try { diskStamp = File.GetLastWriteTimeUtc(full); } catch { diskStamp = DateTime.MinValue; }
 
         lock (_lock)
         {
-            if (_tus.TryGetValue(full, out var node))
+            if (_tus.TryGetValue(cacheKey, out var node))
             {
-                if (node.Value.ArgsKey == argsKey && node.Value.DiskStamp == diskStamp)
+                if (node.Value.DiskStamp == diskStamp)
                 {
                     // Cache hit — bump to MRU and return.
                     _lru.Remove(node);
                     _lru.AddFirst(node);
-                    return new TuLease(node.Value);
+                    node.Value.Leases++;
+                    return new TuLease(this, node.Value);
                 }
 
-                // Stale — drop and reparse below.
-                node.Value.Tu.Dispose();
-                _lru.Remove(node);
-                _tus.Remove(full);
+                // Stale (file changed on disk) — drop and reparse below.
+                RemoveAndReleaseLocked(node);
             }
         }
 
@@ -504,28 +490,28 @@ internal sealed class CppAnalysis : IDisposable
                 CXTranslationUnit_Flags.CXTranslationUnit_DetailedPreprocessingRecord
                 | CXTranslationUnit_Flags.CXTranslationUnit_KeepGoing);
 
-            var cached = new CachedTu(full, unit, argsKey, diskStamp);
+            var cached = new CachedTu(full, cacheKey, unit, diskStamp);
             lock (_lock)
             {
                 // Race: another caller may have populated the slot.
-                if (_tus.TryGetValue(full, out var existing))
+                if (_tus.TryGetValue(cacheKey, out var existing))
                 {
-                    if (existing.Value.ArgsKey == argsKey && existing.Value.DiskStamp == diskStamp)
+                    if (existing.Value.DiskStamp == diskStamp)
                     {
-                        cached.Tu.Dispose();
+                        cached.Tu.Dispose(); // fresh duplicate, never exposed — safe to dispose inline
                         _lru.Remove(existing);
                         _lru.AddFirst(existing);
-                        return new TuLease(existing.Value);
+                        existing.Value.Leases++;
+                        return new TuLease(this, existing.Value);
                     }
-                    existing.Value.Tu.Dispose();
-                    _lru.Remove(existing);
-                    _tus.Remove(full);
+                    RemoveAndReleaseLocked(existing);
                 }
                 var node = _lru.AddFirst(cached);
-                _tus[full] = node;
+                _tus[cacheKey] = node;
+                cached.Leases++;
                 EvictIfNeeded();
             }
-            return new TuLease(cached);
+            return new TuLease(this, cached);
         }
         finally
         {
@@ -540,9 +526,7 @@ internal sealed class CppAnalysis : IDisposable
         {
             var lru = _lru.Last;
             if (lru is null) break;
-            lru.Value.Tu.Dispose();
-            _tus.Remove(lru.Value.FilePath);
-            _lru.RemoveLast();
+            RemoveAndReleaseLocked(lru);
         }
     }
 
@@ -570,25 +554,71 @@ internal sealed class CppAnalysis : IDisposable
     private sealed class CachedTu
     {
         public string FilePath { get; }
+        /// <summary>Dictionary key: file path + effective args — different args coexist as
+        /// separate entries instead of disposing each other's TU on every alternation.</summary>
+        public string CacheKey { get; }
         public CXTranslationUnit Tu { get; }
-        /// <summary>Effective clang args at parse time — a different set means this TU is stale.</summary>
-        public string ArgsKey { get; }
         /// <summary>On-disk LastWriteTimeUtc at parse time — a newer file means this TU is stale.</summary>
         public DateTime DiskStamp { get; }
 
-        public CachedTu(string filePath, CXTranslationUnit tu, string argsKey, DateTime diskStamp)
+        // Guarded by the outer _lock. A TU with outstanding leases is never disposed inline —
+        // disposal is deferred to the last lease's Dispose (native use-after-free otherwise).
+        public int Leases;
+        public bool PendingDispose;
+
+        public CachedTu(string filePath, string cacheKey, CXTranslationUnit tu, DateTime diskStamp)
         {
             FilePath = filePath;
+            CacheKey = cacheKey;
             Tu = tu;
-            ArgsKey = argsKey;
             DiskStamp = diskStamp;
+        }
+    }
+
+    /// <summary>Remove an entry from the cache and dispose its TU — deferred while leases are
+    /// outstanding. Caller must hold <see cref="_lock"/>.</summary>
+    private void RemoveAndReleaseLocked(LinkedListNode<CachedTu> node)
+    {
+        _lru.Remove(node);
+        _tus.Remove(node.Value.CacheKey);
+        if (node.Value.Leases == 0) node.Value.Tu.Dispose();
+        else node.Value.PendingDispose = true;
+    }
+
+    /// <summary>Drop every cached entry (any args variant) for a file. Caller holds _lock.</summary>
+    private void DropAllForFileLocked(string fullPath)
+    {
+        var node = _lru.First;
+        while (node is not null)
+        {
+            var next = node.Next;
+            if (string.Equals(node.Value.FilePath, fullPath, StringComparison.OrdinalIgnoreCase))
+                RemoveAndReleaseLocked(node);
+            node = next;
         }
     }
 
     private readonly struct TuLease : IDisposable
     {
-        public CXTranslationUnit Tu { get; }
-        public TuLease(CachedTu cached) { Tu = cached.Tu; }
-        public void Dispose() { /* TU stays cached */ }
+        private readonly CppAnalysis _owner;
+        private readonly CachedTu _cached;
+        public CXTranslationUnit Tu => _cached.Tu;
+
+        /// <summary>Caller must already have incremented <c>cached.Leases</c> under the lock.</summary>
+        public TuLease(CppAnalysis owner, CachedTu cached)
+        {
+            _owner = owner;
+            _cached = cached;
+        }
+
+        public void Dispose()
+        {
+            lock (_owner._lock)
+            {
+                _cached.Leases--;
+                if (_cached.PendingDispose && _cached.Leases == 0)
+                    _cached.Tu.Dispose();
+            }
+        }
     }
 }
