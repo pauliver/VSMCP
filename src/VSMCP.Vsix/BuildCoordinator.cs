@@ -85,11 +85,36 @@ internal sealed class BuildCoordinator
         job.State = BuildState.Running;
     }
 
+    // The coordinator is held statically (host-wide) — without retention limits every build's
+    // diagnostics + full output-pane text would accumulate for the devenv.exe process lifetime.
+    private const int MaxRetainedCompletedJobs = 20;
+
     public void MarkCompleted(BuildJob job, BuildState finalState)
     {
         job.State = finalState;
         job.EndedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         job.Completion.TrySetResult(Snapshot(job));
+
+        // Release per-job references that are no longer needed once terminal (the advise was
+        // already dropped by the caller) and evict the oldest completed jobs beyond the cap.
+        job.BuildManager = null;
+        job.OnDone = null;
+        EvictCompletedIfNeeded();
+    }
+
+    private void EvictCompletedIfNeeded()
+    {
+        var completed = new List<BuildJob>();
+        foreach (var kv in _builds)
+        {
+            if (kv.Value.State is not (BuildState.Queued or BuildState.Running))
+                completed.Add(kv.Value);
+        }
+        if (completed.Count <= MaxRetainedCompletedJobs) return;
+
+        completed.Sort((a, b) => (a.EndedAtMs ?? 0).CompareTo(b.EndedAtMs ?? 0));
+        for (int i = 0; i < completed.Count - MaxRetainedCompletedJobs; i++)
+            _builds.TryRemove(completed[i].Handle.BuildId, out _);
     }
 
     public async Task<BuildStatus> WaitAsync(BuildJob job, int? timeoutMs, CancellationToken ct)

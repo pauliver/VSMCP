@@ -62,7 +62,16 @@ internal static class Program
                     Console.Error.WriteLine($"[move-many] pairs={pairs.Count} dryRun={dryRun} updateProject={updateProject}");
                     var result = await conn.Proxy.FileMoveManyAsync(pairs, updateProject, dryRun).ConfigureAwait(false);
                     Console.WriteLine(JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true }));
-                    Console.Error.WriteLine($"[move-many] total={result.Total} moved={result.MovedCount} csprojEdits={result.CsprojEdits} skipped={result.SkippedCount}");
+                    Console.Error.WriteLine($"[move-many] total={result.Total} moved={result.MovedCount} csprojEdits={result.CsprojEdits} skipped={result.SkippedCount} errors={result.ErrorCount}");
+                    // Per-pair failures no longer throw (they're recorded on the outcomes), so the
+                    // exit code is what scripted callers key on — partial failure must be non-zero.
+                    if (result.ErrorCount > 0)
+                    {
+                        foreach (var o in result.Outcomes)
+                            if (o.Error is not null)
+                                Console.Error.WriteLine($"[move-many] FAILED {o.From} -> {o.To}: {o.Error}");
+                        return 1;
+                    }
                     return 0;
                 }
                 case "load-folder":
