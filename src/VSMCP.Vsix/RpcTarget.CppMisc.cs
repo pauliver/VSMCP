@@ -381,6 +381,8 @@ internal sealed partial class RpcTarget
             throw new VsmcpException(ErrorCodes.WrongState, $"Header already exists: {headerPath}");
         await Task.Yield();
 
+        await EnsureWriteAllowedAsync(Path.GetFullPath(headerPath), "cpp.scaffold_file", cancellationToken).ConfigureAwait(false);
+
         var dir = Path.GetDirectoryName(headerPath);
         if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
 

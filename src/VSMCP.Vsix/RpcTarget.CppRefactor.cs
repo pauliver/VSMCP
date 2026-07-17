@@ -171,6 +171,9 @@ internal sealed partial class RpcTarget
         foreach (var cand in candidates)
         {
             ct.ThrowIfCancellationRequested();
+            // Best-effort bulk rewrite: silently skip candidates outside the write roots
+            // rather than aborting the whole move.
+            if (!await IsWriteAllowedAsync(Path.GetFullPath(cand), ct).ConfigureAwait(false)) continue;
             string text;
             try { text = File.ReadAllText(cand); } catch { continue; }
             if (!includeRx.IsMatch(text)) continue;
@@ -240,6 +243,7 @@ internal sealed partial class RpcTarget
         var body = string.Join(Environment.NewLine, bodyLines);
 
         // Append to (or create) targetFile.
+        await EnsureWriteAllowedAsync(Path.GetFullPath(targetFile), "cpp.move_type", cancellationToken).ConfigureAwait(false);
         if (!File.Exists(targetFile))
         {
             if (!createTargetIfMissing)
@@ -334,6 +338,7 @@ internal sealed partial class RpcTarget
             qualified = classQualifyRx.Replace(body, className + "::" + methodName + "(", 1);
         }
 
+        await EnsureWriteAllowedAsync(Path.GetFullPath(targetFile), "cpp.move_method", cancellationToken).ConfigureAwait(false);
         if (!File.Exists(targetFile))
         {
             if (!createTargetIfMissing)

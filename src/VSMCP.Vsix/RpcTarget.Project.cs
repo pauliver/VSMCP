@@ -195,6 +195,8 @@ internal sealed partial class RpcTarget
             var target = Path.IsPathRooted(path) ? path : Path.Combine(projectDir, path);
             if (!File.Exists(target))
             {
+                await EnsureWriteAllowedAsync(Path.GetFullPath(target), "project.file_add", cancellationToken).ConfigureAwait(false);
+                await _jtf.SwitchToMainThreadAsync(cancellationToken);
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                 File.WriteAllText(target, string.Empty);
             }

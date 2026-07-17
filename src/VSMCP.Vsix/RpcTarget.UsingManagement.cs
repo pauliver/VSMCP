@@ -131,6 +131,7 @@ internal sealed partial class RpcTarget
 
         await _jtf.SwitchToMainThreadAsync(cancellationToken);
         if (!File.Exists(file)) throw new VsmcpException(ErrorCodes.NotFound, $"File not found: {file}");
+        await EnsureWriteAllowedAsync(Path.GetFullPath(file), "edit.add_include", cancellationToken).ConfigureAwait(false);
 
         var lines = File.ReadAllLines(file).ToList();
         var directive = isSystem ? $"#include <{headerPath}>" : $"#include \"{headerPath}\"";

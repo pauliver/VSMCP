@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -166,6 +167,7 @@ internal sealed partial class RpcTarget
     }
 
     private string[]? _writeRootsCache;
+    private string? _writeRootsSolution; // solution FullName the cache was computed for
 
     /// <summary>
     /// Confine a mutating file op to the open solution's repository (audit through-line: data safety).
@@ -179,31 +181,94 @@ internal sealed partial class RpcTarget
             WriteScopePolicy.EnsureWithinAnyRoot(roots, path, operation);
     }
 
-    /// <summary>Allowed write roots: the solution's enclosing git repo root (else the solution dir). Cached per connection.</summary>
+    /// <summary>True when <paramref name="path"/> is inside the allowed write roots (or no roots
+    /// are determinable). Non-throwing variant for best-effort bulk operations that skip rather
+    /// than abort.</summary>
+    private async Task<bool> IsWriteAllowedAsync(string path, CancellationToken ct)
+    {
+        var roots = await GetWriteRootsAsync(ct).ConfigureAwait(false);
+        return roots.Count == 0 || WriteScopePolicy.IsWithinAnyRoot(roots, path);
+    }
+
+    /// <summary>
+    /// Allowed write roots: the solution's enclosing git repo root (else the solution dir), PLUS
+    /// each loaded project's repo root (solutions routinely reference projects outside the
+    /// solution's own repo), PLUS any user-configured "writeScopeRoots" from
+    /// %LOCALAPPDATA%\VSMCP\config.json. Cached per solution — recomputed when the open solution
+    /// changes, so a solution switch can neither leak the old scope nor block the new one.
+    /// </summary>
     private async Task<IReadOnlyList<string>> GetWriteRootsAsync(CancellationToken ct)
     {
-        if (_writeRootsCache is not null) return _writeRootsCache;
-
         await _jtf.SwitchToMainThreadAsync(ct);
-        var roots = new List<string>();
+
+        string slnKey = "";
+        EnvDTE80.DTE2? dte = null;
         try
         {
-            if (await _package.GetServiceAsync(typeof(EnvDTE.DTE)) is EnvDTE80.DTE2 dte)
+            dte = await _package.GetServiceAsync(typeof(EnvDTE.DTE)) as EnvDTE80.DTE2;
+            slnKey = dte?.Solution?.FullName ?? "";
+        }
+        catch { }
+
+        if (_writeRootsCache is not null
+            && string.Equals(_writeRootsSolution, slnKey, StringComparison.OrdinalIgnoreCase))
+            return _writeRootsCache;
+
+        var roots = new List<string>();
+        void AddRoot(string? dir)
+        {
+            if (string.IsNullOrEmpty(dir)) return;
+            var repo = AscendToRepoRoot(dir) ?? dir;
+            if (!roots.Contains(repo!, StringComparer.OrdinalIgnoreCase)) roots.Add(repo!);
+            if (!roots.Contains(dir!, StringComparer.OrdinalIgnoreCase)) roots.Add(dir!);
+        }
+
+        try
+        {
+            if (dte is not null)
             {
                 var slnPath = dte.Solution?.FullName;
-                string? baseDir = string.IsNullOrEmpty(slnPath) ? null
-                    : (Directory.Exists(slnPath) ? slnPath : Path.GetDirectoryName(slnPath));
-                if (!string.IsNullOrEmpty(baseDir))
+                if (!string.IsNullOrEmpty(slnPath))
+                    AddRoot(Directory.Exists(slnPath) ? slnPath : Path.GetDirectoryName(slnPath));
+
+                // Projects can live outside the solution's repo (other drives, engine dirs);
+                // their files are legitimate workspace documents and must stay writable.
+                foreach (var project in VsHelpers.EnumerateProjects(dte.Solution))
                 {
-                    var repo = AscendToRepoRoot(baseDir) ?? baseDir;
-                    roots.Add(repo!);
-                    if (!roots.Contains(baseDir!)) roots.Add(baseDir!);
+                    string? projPath = null;
+                    try { projPath = project.FullName; } catch { }
+                    if (!string.IsNullOrEmpty(projPath))
+                        AddRoot(Path.GetDirectoryName(projPath));
                 }
             }
         }
         catch { /* no root determinable -> fail open */ }
 
+        // User-configured extra roots — the escape hatch the WrongState error advertises.
+        try
+        {
+            var configPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VSMCP", "config.json");
+            if (File.Exists(configPath))
+            {
+                var json = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(configPath));
+                if (json["writeScopeRoots"] is Newtonsoft.Json.Linq.JArray extra)
+                {
+                    foreach (var item in extra)
+                    {
+                        var dir = item?.ToString();
+                        if (!string.IsNullOrWhiteSpace(dir))
+                        {
+                            try { AddRoot(Path.GetFullPath(dir!)); } catch { }
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex) { VsmcpLog.Debug("write-scope", "failed reading writeScopeRoots from config.json", ex); }
+
         _writeRootsCache = roots.ToArray();
+        _writeRootsSolution = slnKey;
         return _writeRootsCache;
     }
 
