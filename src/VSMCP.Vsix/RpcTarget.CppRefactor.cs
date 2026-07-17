@@ -58,49 +58,11 @@ internal sealed partial class RpcTarget
                 continue;
             }
 
-            // Re-verify every splice site against CURRENT content — the reference positions come
-            // from a parse that may predate other edits. A mismatch is skipped, never spliced.
-            string[] lines;
-            try
-            {
-                var content = (await FileReadAsync(target, null, cancellationToken).ConfigureAwait(false)).Content;
-                lines = content.Split('\n');
-            }
-            catch
-            {
-                result.SkippedMismatched += group.Count();
-                continue;
-            }
+            var (applied, skipped) = await SpliceRenameFileAsync(
+                target, group, oldName, newName, dryRun, result.EditedLocations, cancellationToken).ConfigureAwait(false);
+            result.SkippedMismatched += skipped;
 
-            bool editedAny = false;
-            var ordered = group
-                .OrderByDescending(l => l.Line)
-                .ThenByDescending(l => l.Column)
-                .ToList();
-            foreach (var loc in ordered)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (!SpliceSiteMatches(lines, loc.Line, loc.Column, oldName))
-                {
-                    result.SkippedMismatched++;
-                    continue;
-                }
-
-                if (!dryRun)
-                {
-                    await FileReplaceRangeAsync(target, new FileRange
-                    {
-                        StartLine = loc.Line,
-                        StartColumn = loc.Column,
-                        EndLine = loc.Line,
-                        EndColumn = loc.Column + oldName.Length,
-                    }, newName, cancellationToken).ConfigureAwait(false);
-                }
-                result.EditedLocations.Add(loc);
-                editedAny = true;
-            }
-
-            if (editedAny)
+            if (applied > 0)
             {
                 if (!dryRun)
                 {
@@ -113,16 +75,65 @@ internal sealed partial class RpcTarget
         return result;
     }
 
-    /// <summary>True when <paramref name="lines"/> (0-based array of 1-based-addressed lines)
-    /// still contains <paramref name="oldName"/> at the 1-based (line, column) splice site.</summary>
-    private static bool SpliceSiteMatches(string[] lines, int line, int column, string oldName)
+    /// <summary>
+    /// Shared splice engine for cpp_rename / cpp_rename_solution: re-verifies every site against
+    /// the file's CURRENT content (a mismatch is skipped, never spliced), converts libclang's
+    /// UTF-8 byte columns to char columns so non-ASCII lines splice correctly, and edits
+    /// bottom-up so earlier edits don't shift later ones. Returns (applied, skippedMismatched);
+    /// verified sites are appended to <paramref name="editedOut"/> even in dry runs (the plan).
+    /// </summary>
+    private async Task<(int Applied, int Skipped)> SpliceRenameFileAsync(
+        string file, IEnumerable<CppLocation> locs, string oldName, string newName,
+        bool dryRun, List<CppLocation>? editedOut, CancellationToken ct)
+    {
+        string[] lines;
+        try
+        {
+            lines = (await FileReadAsync(file, null, ct).ConfigureAwait(false)).Content.Split('\n');
+        }
+        catch
+        {
+            return (0, locs.Count());
+        }
+
+        int applied = 0, skipped = 0;
+        foreach (var loc in locs.OrderByDescending(l => l.Line).ThenByDescending(l => l.Column))
+        {
+            ct.ThrowIfCancellationRequested();
+            var charCol = SpliceCharColumn(lines, loc.Line, loc.Column, oldName);
+            if (charCol < 0)
+            {
+                skipped++;
+                continue;
+            }
+
+            if (!dryRun)
+            {
+                await FileReplaceRangeAsync(file, new FileRange
+                {
+                    StartLine = loc.Line,
+                    StartColumn = charCol,
+                    EndLine = loc.Line,
+                    EndColumn = charCol + oldName.Length,
+                }, newName, ct).ConfigureAwait(false);
+            }
+            editedOut?.Add(loc);
+            applied++;
+        }
+        return (applied, skipped);
+    }
+
+    /// <summary>1-based CHAR column where <paramref name="oldName"/> verifiably sits at the
+    /// 1-based (line, byte-column) site reported by libclang, or -1 on any mismatch.</summary>
+    private static int SpliceCharColumn(string[] lines, int line, int byteColumn, string oldName)
     {
         var li = line - 1;
-        if (li < 0 || li >= lines.Length) return false;
+        if (li < 0 || li >= lines.Length) return -1;
         var text = lines[li].TrimEnd('\r');
-        var ci = column - 1;
-        return ci >= 0 && ci + oldName.Length <= text.Length
-            && string.CompareOrdinal(text, ci, oldName, 0, oldName.Length) == 0;
+        var ci = TextColumns.Utf8ByteToCharIndex(text, byteColumn - 1);
+        if (ci < 0 || ci + oldName.Length > text.Length) return -1;
+        if (string.CompareOrdinal(text, ci, oldName, 0, oldName.Length) != 0) return -1;
+        return ci + 1;
     }
 
     /// <summary>

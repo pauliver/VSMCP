@@ -288,41 +288,27 @@ internal sealed partial class RpcTarget
         if (string.IsNullOrEmpty(oldName))
             throw new VsmcpException(ErrorCodes.WrongState, "Could not determine the old name from the cursor.");
 
-        // Re-verify each splice site against current content so a stale parse can't corrupt the
-        // file — mismatched sites are skipped, not spliced.
-        string[] currentLines;
-        try
-        {
-            currentLines = (await FileReadAsync(file, null, cancellationToken).ConfigureAwait(false)).Content.Split('\n');
-        }
-        catch
-        {
-            currentLines = System.Array.Empty<string>();
-        }
-
-        // Sort locations bottom-up so earlier edits don't shift later ones.
-        var ordered = refs.Locations
-            .OrderByDescending(l => l.Line)
-            .ThenByDescending(l => l.Column)
-            .ToList();
-
-        foreach (var loc in ordered)
+        // The single-TU walk still reports sites in #included headers (the declaration site is
+        // explicitly prepended), so splice PER FILE: each file's sites verify against that file's
+        // own current content — verifying header sites against the seed's lines either silently
+        // skipped them or spliced unverified. Files outside the write roots are skipped entirely.
+        foreach (var group in refs.Locations
+            .GroupBy(l => l.File ?? "", StringComparer.OrdinalIgnoreCase)
+            .Where(g => !string.IsNullOrEmpty(g.Key)))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (string.IsNullOrEmpty(loc.File)) continue;
-            if (!SpliceSiteMatches(currentLines, loc.Line, loc.Column, oldName)) continue;
-            // Splice: replace the [column, column+oldName.Length) range with newName.
-            await FileReplaceRangeAsync(loc.File, new FileRange
-            {
-                StartLine = loc.Line,
-                StartColumn = loc.Column,
-                EndLine = loc.Line,
-                EndColumn = loc.Column + oldName.Length,
-            }, newName, cancellationToken).ConfigureAwait(false);
-        }
+            var target = System.IO.Path.GetFullPath(group.Key);
+            if (!await IsWriteAllowedAsync(target, cancellationToken).ConfigureAwait(false)) continue;
 
-        // Invalidate so subsequent semantic queries reparse.
-        try { await CppInvalidateAsync(file, cancellationToken).ConfigureAwait(false); } catch { }
+            var (applied, _) = await SpliceRenameFileAsync(
+                target, group, oldName, newName, dryRun: false, editedOut: null, cancellationToken).ConfigureAwait(false);
+
+            if (applied > 0)
+            {
+                // Invalidate so subsequent semantic queries reparse.
+                try { await CppInvalidateAsync(target, cancellationToken).ConfigureAwait(false); } catch { }
+            }
+        }
 
         // Return refs (their locations will be slightly stale post-edit but useful as audit trail).
         return refs;
