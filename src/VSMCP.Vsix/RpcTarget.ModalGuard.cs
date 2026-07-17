@@ -37,11 +37,23 @@ internal sealed partial class RpcTarget
 
         // The body runs (and SuppressUI is restored) on the main thread, when the body actually
         // finishes — restoring from another thread would deadlock behind the very modal we detect.
+        // The restore must survive a cancelled main-thread switch, or SuppressUI stays true for
+        // the rest of the VS session — hence the token-less re-switch in the finally.
         var bodyTask = _jtf.RunAsync(async () =>
         {
-            await _jtf.SwitchToMainThreadAsync(ct);
-            try { await body(dte); }
-            finally { if (suppressed) { try { dte.SuppressUI = prevSuppress; } catch { } } }
+            try
+            {
+                await _jtf.SwitchToMainThreadAsync(ct);
+                await body(dte);
+            }
+            finally
+            {
+                if (suppressed)
+                {
+                    await _jtf.SwitchToMainThreadAsync(CancellationToken.None);
+                    try { dte.SuppressUI = prevSuppress; } catch { }
+                }
+            }
         }).Task;
 
         if (mainHwnd == IntPtr.Zero)
@@ -61,6 +73,12 @@ internal sealed partial class RpcTarget
         var title = await wedge.ConfigureAwait(false);
         if (title is null)
         {
+            // The watchdog ended without detecting a modal: either the body just completed
+            // (normal) or the CALLER CANCELLED. On cancellation, never block on a possibly
+            // wedged body — that await would hold the host-wide dispatch gate forever, the
+            // exact failure this guard exists to prevent. The body keeps running detached.
+            if (ct.IsCancellationRequested && !bodyTask.IsCompleted)
+                throw new OperationCanceledException(ct);
             await bodyTask.ConfigureAwait(false);
             return;
         }

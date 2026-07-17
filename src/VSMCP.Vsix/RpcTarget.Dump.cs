@@ -34,15 +34,24 @@ internal sealed partial class RpcTarget
             throw new VsmcpException(ErrorCodes.InteropFault, $"Failed to open dump document: {ex.Message}", ex);
         }
 
-        try
+        // Debug.Start on a dump is the canonical modal-wedge op in this codebase (see
+        // reference docs / PR #149): symbol/security prompts pop a modal on the UI thread.
+        // Without the guard, a wedge here would pin the host-wide dispatch gate and block
+        // every other tool call.
+        await RunWithModalGuardAsync("dump.open", d =>
         {
-            dte.ExecuteCommand("Debug.Start");
-        }
-        catch (Exception ex)
-        {
-            throw new VsmcpException(ErrorCodes.InteropFault, $"Dump opened, but Debug.Start failed: {ex.Message}", ex);
-        }
+            try
+            {
+                d.ExecuteCommand("Debug.Start");
+            }
+            catch (Exception ex)
+            {
+                throw new VsmcpException(ErrorCodes.InteropFault, $"Dump opened, but Debug.Start failed: {ex.Message}", ex);
+            }
+            return Task.CompletedTask;
+        }, cancellationToken).ConfigureAwait(false);
 
+        await _jtf.SwitchToMainThreadAsync(cancellationToken);
         var result = new DumpOpenResult { Path = path };
         try
         {

@@ -84,23 +84,28 @@ internal sealed partial class RpcTarget
             throw new VsmcpException(ErrorCodes.NotFound,
                 options.Pid is int pid ? $"No local process with pid {pid}." : $"No local process named '{options.ProcessName}'.");
 
-        try
+        await RunWithModalGuardAsync("debug.attach", _ =>
         {
-            if (options.Engines is { Count: > 0 })
+            try
             {
-                var engines = options.Engines.ToArray();
-                target.Attach2(engines);
+                if (options.Engines is { Count: > 0 })
+                {
+                    var engines = options.Engines.ToArray();
+                    target.Attach2(engines);
+                }
+                else
+                {
+                    target.Attach();
+                }
             }
-            else
+            catch (Exception ex)
             {
-                target.Attach();
+                throw new VsmcpException(ErrorCodes.InteropFault, $"Attach failed: {ex.Message}", ex);
             }
-        }
-        catch (Exception ex)
-        {
-            throw new VsmcpException(ErrorCodes.InteropFault, $"Attach failed: {ex.Message}", ex);
-        }
+            return Task.CompletedTask;
+        }, cancellationToken).ConfigureAwait(false);
 
+        await _jtf.SwitchToMainThreadAsync(cancellationToken);
         return Result("Attached.", $"pid={target.ProcessID}, name={target.Name}");
     }
 
