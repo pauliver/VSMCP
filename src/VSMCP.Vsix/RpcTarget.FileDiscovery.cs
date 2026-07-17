@@ -35,6 +35,10 @@ internal sealed partial class RpcTarget
         if (maxResults <= 0) maxResults = 1000;
         if (maxResults > 50_000) maxResults = 50_000;
 
+        // Compile the glob ONCE — the walkers below test it per file, and the string overload
+        // recompiles the regex per call (quadratic-ish over an Unreal-sized tree).
+        var patternRx = pattern is null ? null : GlobToRegex(pattern);
+
         var result = new FileListResult();
         var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool sawAnyRealProject = false;
@@ -53,12 +57,12 @@ internal sealed partial class RpcTarget
 
             if (string.IsNullOrEmpty(folder))
             {
-                CollectFromProjectItems(project.ProjectItems, projectDir, pattern, kinds, maxResults, result, seenPaths);
+                CollectFromProjectItems(project.ProjectItems, projectDir, patternRx, kinds, maxResults, result, seenPaths);
             }
             else
             {
                 var folderPath = Path.Combine(projectDir, folder!.Replace('\\', '/'));
-                CollectFilesFromFolder(project, folderPath, pattern, kinds, maxResults, result, seenPaths);
+                CollectFilesFromFolder(project, folderPath, patternRx, kinds, maxResults, result, seenPaths);
             }
             if (result.Files.Count >= maxResults) break;
         }
@@ -80,7 +84,7 @@ internal sealed partial class RpcTarget
                     ? root!
                     : Path.Combine(root!, folder!.Replace('\\', '/'));
                 if (Directory.Exists(startDir))
-                    CollectFromDirectory(startDir, pattern, kinds, maxResults, result, seenPaths);
+                    CollectFromDirectory(startDir, patternRx, kinds, maxResults, result, seenPaths);
             }
         }
 
@@ -100,33 +104,80 @@ internal sealed partial class RpcTarget
             // under, the .sln directory (e.g. P:\repo\src\X.sln with C++ in P:\repo\tests).
             slnDir = AscendToRepoRoot(slnDir);
             if (!string.IsNullOrEmpty(slnDir) && Directory.Exists(slnDir))
-                CollectCppFromDirectory(slnDir!, pattern, kinds, maxResults, result, seenPaths);
+                CollectCppFromDirectory(slnDir!, patternRx, kinds, maxResults, result, seenPaths);
         }
 
         result.Total = result.Files.Count;
         return result;
     }
 
-    private static readonly HashSet<string> CppExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".h", ".hpp", ".hxx", ".hh", ".inl", ".c", ".cpp", ".cc", ".cxx",
-    };
+    // Cached result of the repo-rooted C++ walk. search_text/file_glob/cpp tools each trigger a
+    // file_list per call — re-walking a UE-scale tree every time (while the host-wide dispatch
+    // gate is held) stalled the whole tool surface. One walk per root per TTL window instead.
+    private static readonly object s_cppScanLock = new();
+    private static string? s_cppScanRoot;
+    private static string[]? s_cppScanFiles;
+    private static DateTime s_cppScanAtUtc;
+    private const int CppScanTtlSeconds = 60;
 
     /// <summary>Solution-rooted disk scan for C/C++ sources the DTE walk missed. Same cruft
     /// skipping as <see cref="CollectFromDirectory"/> but restricted to C/C++ extensions so it
-    /// can't flood results with build outputs or assets.</summary>
+    /// can't flood results with build outputs or assets. The raw walk is cached per root for
+    /// <see cref="CppScanTtlSeconds"/>; new files appear after at most that delay.</summary>
     private static void CollectCppFromDirectory(
-        string root, string? pattern, IReadOnlyList<string>? kinds,
+        string root, System.Text.RegularExpressions.Regex? patternRx, IReadOnlyList<string>? kinds,
         int maxResults, FileListResult result, HashSet<string> seenPaths)
     {
         if (kinds is not null && !kinds.Contains("file")) return;
 
+        string[] cppFiles;
+        lock (s_cppScanLock)
+        {
+            if (s_cppScanFiles is not null
+                && string.Equals(s_cppScanRoot, root, StringComparison.OrdinalIgnoreCase)
+                && (DateTime.UtcNow - s_cppScanAtUtc).TotalSeconds < CppScanTtlSeconds)
+            {
+                cppFiles = s_cppScanFiles;
+            }
+            else
+            {
+                cppFiles = WalkCppFiles(root);
+                s_cppScanRoot = root;
+                s_cppScanFiles = cppFiles;
+                s_cppScanAtUtc = DateTime.UtcNow;
+            }
+        }
+
+        foreach (var file in cppFiles)
+        {
+            if (!seenPaths.Add(file)) continue;
+            if (patternRx is not null && !GlobMatcher.MatchesPathOrName(file, patternRx)) continue;
+
+            result.Files.Add(new FileListItem
+            {
+                Path = file,
+                Kind = "file",
+                Language = GetLanguage(file),
+                ProjectId = null,
+            });
+
+            if (result.Files.Count >= maxResults)
+            {
+                result.Truncated = true;
+                return;
+            }
+        }
+    }
+
+    private static string[] WalkCppFiles(string root)
+    {
         var skipDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             ".git", ".vs", ".vscode", "bin", "obj", "node_modules", "packages",
             "Intermediate", "Saved", "DerivedDataCache", // UE working dirs
         };
 
+        var files = new List<string>();
         var stack = new Stack<string>();
         stack.Push(root);
 
@@ -138,25 +189,7 @@ internal sealed partial class RpcTarget
             catch { continue; }
 
             foreach (var file in entries)
-            {
-                if (!CppExtensions.Contains(Path.GetExtension(file))) continue;
-                if (!seenPaths.Add(file)) continue;
-                if (pattern is not null && !MatchesGlob(file, pattern)) continue;
-
-                result.Files.Add(new FileListItem
-                {
-                    Path = file,
-                    Kind = "file",
-                    Language = GetLanguage(file),
-                    ProjectId = null,
-                });
-
-                if (result.Files.Count >= maxResults)
-                {
-                    result.Truncated = true;
-                    return;
-                }
-            }
+                if (CppFileTypes.IsCppFile(file)) files.Add(file);
 
             string[] subdirs;
             try { subdirs = Directory.GetDirectories(dir); }
@@ -167,10 +200,11 @@ internal sealed partial class RpcTarget
                 stack.Push(sub);
             }
         }
+        return files.ToArray();
     }
 
     private static void CollectFromDirectory(
-        string root, string? pattern, IReadOnlyList<string>? kinds,
+        string root, System.Text.RegularExpressions.Regex? patternRx, IReadOnlyList<string>? kinds,
         int maxResults, FileListResult result, HashSet<string> seenPaths)
     {
         // Skip the usual cruft so a workspace walk doesn't return tens of thousands of build outputs.
@@ -194,7 +228,7 @@ internal sealed partial class RpcTarget
             {
                 if (!seenPaths.Add(file)) continue;
                 if (kinds is not null && !kinds.Contains("file")) continue;
-                if (pattern is not null && !MatchesGlob(file, pattern)) continue;
+                if (patternRx is not null && !GlobMatcher.MatchesPathOrName(file, patternRx)) continue;
 
                 result.Files.Add(new FileListItem
                 {
@@ -249,7 +283,7 @@ internal sealed partial class RpcTarget
     }
 
     private static void CollectFromProjectItems(
-        EnvDTE.ProjectItems? items, string projectDir, string? pattern,
+        EnvDTE.ProjectItems? items, string projectDir, System.Text.RegularExpressions.Regex? patternRx,
         IReadOnlyList<string>? kinds, int maxResults, FileListResult result, HashSet<string> seenPaths)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
@@ -268,7 +302,7 @@ internal sealed partial class RpcTarget
 
                 var kind = GetItemKind(item);
                 if (kinds is not null && !kinds.Contains(kind)) continue;
-                if (pattern is not null && !MatchesGlob(file, pattern)) continue;
+                if (patternRx is not null && !GlobMatcher.MatchesPathOrName(file, patternRx)) continue;
 
                 result.Files.Add(new FileListItem
                 {
@@ -285,13 +319,13 @@ internal sealed partial class RpcTarget
                 }
             }
 
-            CollectFromProjectItems(item.ProjectItems, projectDir, pattern, kinds, maxResults, result, seenPaths);
+            CollectFromProjectItems(item.ProjectItems, projectDir, patternRx, kinds, maxResults, result, seenPaths);
             if (result.Files.Count >= maxResults) return;
         }
     }
 
     private static void CollectFilesFromFolder(
-        EnvDTE.Project project, string folderPath, string? pattern,
+        EnvDTE.Project project, string folderPath, System.Text.RegularExpressions.Regex? patternRx,
         IReadOnlyList<string>? kinds, int maxResults, FileListResult result, HashSet<string> seenPaths)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
@@ -302,7 +336,7 @@ internal sealed partial class RpcTarget
             if (!seenPaths.Add(file)) continue;
             const string kind = "file";
             if (kinds is not null && !kinds.Contains(kind)) continue;
-            if (pattern is not null && !MatchesGlob(file, pattern)) continue;
+            if (patternRx is not null && !GlobMatcher.MatchesPathOrName(file, patternRx)) continue;
 
             result.Files.Add(new FileListItem
             {

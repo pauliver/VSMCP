@@ -140,8 +140,9 @@ internal sealed partial class RpcTarget
         return hits;
     }
 
-    private static readonly HashSet<string> s_cppExts = new(StringComparer.OrdinalIgnoreCase)
-    { ".h", ".hpp", ".hxx", ".hh", ".c", ".cpp", ".cc", ".cxx" };
+    // One canonical extension set (Core CppFileTypes) shared with file_list's supplemental scan —
+    // two drifting sets meant the tools disagreed on which files exist (e.g. .inl).
+    private static readonly HashSet<string> s_cppExts = CppFileTypes.Extensions;
 
     private static readonly HashSet<string> s_skipDirs = new(StringComparer.OrdinalIgnoreCase)
     { "bin", "obj", ".git", ".vs", "node_modules", "packages", "Build", "out", "Release", "Debug" };
