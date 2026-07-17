@@ -96,6 +96,9 @@ internal sealed partial class RpcTarget
             var slnDir = Directory.Exists(solutionFullName!)
                 ? solutionFullName!
                 : Path.GetDirectoryName(solutionFullName!);
+            // Ascend to the enclosing repo root — C++ fixtures/sources often live beside, not
+            // under, the .sln directory (e.g. P:\repo\src\X.sln with C++ in P:\repo\tests).
+            slnDir = AscendToRepoRoot(slnDir);
             if (!string.IsNullOrEmpty(slnDir) && Directory.Exists(slnDir))
                 CollectCppFromDirectory(slnDir!, pattern, kinds, maxResults, result, seenPaths);
         }

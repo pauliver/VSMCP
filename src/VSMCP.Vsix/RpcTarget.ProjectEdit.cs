@@ -194,10 +194,14 @@ internal sealed partial class RpcTarget
 
             var callers = await Microsoft.CodeAnalysis.FindSymbols.SymbolFinder.FindCallersAsync(
                 sym, solution, cancellationToken).ConfigureAwait(false);
+            // FindCallersAsync yields one entry per (caller, call-site group) — the same calling
+            // member can appear several times. One child node per distinct caller.
+            var seenCallers = new HashSet<string>();
             foreach (var caller in callers)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (caller.CallingSymbol is null) continue;
+                if (!seenCallers.Add(caller.CallingSymbol.ToDisplayString())) continue;
                 node.CalledBy.Add(await BuildAsync(caller.CallingSymbol, depth + 1).ConfigureAwait(false));
             }
             return node;
