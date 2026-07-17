@@ -1,0 +1,31 @@
+name: live-e2e
+
+# Live end-to-end lane: drives a REAL Visual Studio 2022 instance through the VSMCP pipe.
+# Needs a self-hosted Windows runner (label: vsmcp-live) with VS 2022 + the VSMCP VSIX
+# installed and an interactive desktop session — hosted runners can't run devenv UI.
+on:
+  schedule:
+    - cron: '0 9 * * 1-5' # weekdays 09:00 UTC
+  workflow_dispatch:
+
+jobs:
+  live-e2e:
+    runs-on: [self-hosted, windows, vsmcp-live]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Launch VS with the VSMCP solution and wait for the pipe
+        shell: pwsh
+        run: ./tools/ci/start-vs.ps1 -Solution src/VSMCP.sln
+
+      - name: Run live E2E suite
+        shell: pwsh
+        env:
+          VSMCP_E2E: '1'
+        run: dotnet test tests/Skills.E2E/Skills.E2E.csproj -v minimal --nologo
+
+      - name: Shut down VS
+        if: always()
+        shell: pwsh
+        run: ./tools/ci/stop-vs.ps1

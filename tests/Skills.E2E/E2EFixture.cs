@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using VSMCP.Server;
 using VSMCP.Shared;
+using Xunit;
 
 namespace VSMCP.Tests.Skills.E2E;
 
@@ -15,7 +16,9 @@ namespace VSMCP.Tests.Skills.E2E;
 /// Bootstraps a <see cref="VsConnection"/> + <see cref="VsmcpTools"/> so tests
 /// call the exact same code paths that the MCP server would.
 /// </summary>
-public sealed class E2EFixture : IAsyncDisposable
+// IAsyncLifetime, not just IAsyncDisposable: xunit v2 only honors IDisposable/IAsyncLifetime on
+// fixtures, so an IAsyncDisposable-only fixture never got disposed and leaked its pipe connection.
+public sealed class E2EFixture : IAsyncLifetime, IAsyncDisposable
 {
     public const string EnableEnvVar = "VSMCP_E2E";
 
@@ -54,6 +57,9 @@ public sealed class E2EFixture : IAsyncDisposable
     {
         await Connection.DisposeAsync().ConfigureAwait(false);
     }
+
+    Task IAsyncLifetime.InitializeAsync() => Task.CompletedTask;
+    Task IAsyncLifetime.DisposeAsync() => DisposeAsync().AsTask();
 
     private static string LocateFixturesRoot()
     {

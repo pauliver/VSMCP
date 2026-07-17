@@ -146,55 +146,63 @@ internal sealed partial class RpcTarget
         throw new VsmcpException(ErrorCodes.NotFound, $"Could not find symbol {symbol} to investigate");
     }
 
+    /// <summary>
+    /// Caller graph for <c>className.methodName</c>, resolved through the Roslyn semantic model:
+    /// each level is <see cref="Microsoft.CodeAnalysis.FindSymbols.SymbolFinder.FindCallersAsync"/>
+    /// on the previous level's calling symbols, so nodes are REAL enclosing members (the old
+    /// implementation labeled callers "FileName.Line123"). C# only — for C++ use
+    /// cpp_find_references_solution / cpp_investigate.
+    /// </summary>
     public async Task<CallGraphResult> ProjectCallGraphAsync(string className, string methodName, int maxDepth, string? language, CancellationToken cancellationToken = default)
     {
-        var result = new CallGraphResult();
+        if (string.Equals(language, "cpp", StringComparison.OrdinalIgnoreCase))
+            throw new VsmcpException(ErrorCodes.Unsupported,
+                "project.call_graph is C#-only. For C++ use cpp_find_references_solution or cpp_investigate.");
+        if (maxDepth <= 0) maxDepth = 3;
+
+        var ws = await GetWorkspaceAsync(cancellationToken);
+        await TaskScheduler.Default; // semantic walk is heavy — keep it off the UI thread
+        var solution = ws.CurrentSolution;
+
+        // Resolve the starting member symbol.
+        Microsoft.CodeAnalysis.ISymbol? target = null;
+        foreach (var project in solution.Projects)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var types = await Microsoft.CodeAnalysis.FindSymbols.SymbolFinder.FindSourceDeclarationsAsync(
+                project, n => string.Equals(n, className, StringComparison.Ordinal), cancellationToken).ConfigureAwait(false);
+            foreach (var t in types.OfType<Microsoft.CodeAnalysis.INamedTypeSymbol>())
+            {
+                target = t.GetMembers(methodName).FirstOrDefault();
+                if (target is not null) break;
+            }
+            if (target is not null) break;
+        }
+        if (target is null)
+            throw new VsmcpException(ErrorCodes.NotFound, $"No member '{className}.{methodName}' found in the loaded solution.");
+
         var visited = new HashSet<string>();
 
-        async Task<CallGraphNode> TraceCallsAsync(string clzName, string methName, int currentDepth)
+        async Task<CallGraphNode> BuildAsync(Microsoft.CodeAnalysis.ISymbol sym, int depth)
         {
-            var nodeName = $"{clzName}.{methName}";
-            var node = new CallGraphNode { Name = nodeName };
+            var name = sym.ContainingType is null ? sym.Name : $"{sym.ContainingType.Name}.{sym.Name}";
+            var node = new CallGraphNode { Name = name, Location = GetCodeSpan(sym) };
 
-            if (visited.Contains(nodeName)) return node;
-            visited.Add(nodeName);
+            // Cycle guard + depth cap: an already-expanded symbol appears as a leaf.
+            if (!visited.Add(sym.ToDisplayString()) || depth >= maxDepth)
+                return node;
 
-            var searchRes = await SearchMembersAsync(methName, null, clzName, cancellationToken).ConfigureAwait(false);
-            if (searchRes.Members.Count > 0)
+            var callers = await Microsoft.CodeAnalysis.FindSymbols.SymbolFinder.FindCallersAsync(
+                sym, solution, cancellationToken).ConfigureAwait(false);
+            foreach (var caller in callers)
             {
-                node.Location = searchRes.Members[0].Location;
-
-                if (node.Location != null && currentDepth < maxDepth)
-                {
-                    var usages = await SearchFindUsagesAsync(node.Location.File, new CodePosition { Line = node.Location.StartLine, Column = node.Location.StartColumn }, cancellationToken).ConfigureAwait(false);
-                    foreach (var usage in usages.Usages)
-                    {
-                        if (usage.Type == "reference")
-                        {
-                            CallGraphNode childNode = null;
-                            if (currentDepth + 1 < maxDepth)
-                            {
-                                // Attempt to parse out the class/method name from the usage file
-                                // As a placeholder, we use the file name as class, and line number as method.
-                                // A proper AST parser would be needed here to resolve the actual calling method.
-                                var callingClass = System.IO.Path.GetFileNameWithoutExtension(usage.File);
-                                var callingMethod = $"Line{usage.Line}";
-                                childNode = await TraceCallsAsync(callingClass, callingMethod, currentDepth + 1).ConfigureAwait(false);
-                            }
-                            else
-                            {
-                                childNode = new CallGraphNode { Name = $"{usage.File}:{usage.Line}", Location = new CodeSpan { File = usage.File, StartLine = usage.Line, StartColumn = usage.Column } };
-                            }
-
-                            node.CalledBy.Add(childNode);
-                        }
-                    }
-                }
+                cancellationToken.ThrowIfCancellationRequested();
+                if (caller.CallingSymbol is null) continue;
+                node.CalledBy.Add(await BuildAsync(caller.CallingSymbol, depth + 1).ConfigureAwait(false));
             }
             return node;
         }
 
-        result.Root = await TraceCallsAsync(className, methodName, 0).ConfigureAwait(false);
-        return result;
+        return new CallGraphResult { Root = await BuildAsync(target, 0).ConfigureAwait(false) };
     }
 }
